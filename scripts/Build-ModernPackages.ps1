@@ -33,6 +33,8 @@ try {
         Copy-Item -LiteralPath (Join-Path $repoRoot "FontPackages\$family\SOURCE.txt") -Destination (Join-Path $licenses "$family-SOURCE.txt") -Force
     }
     Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $licenses 'APP-LICENSE.txt') -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\Breeze-AGPL-3.0.txt') -Destination $licenses -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\THIRD-PARTY.txt') -Destination $licenses -Force
     # Ship the usage guide rather than repository documentation with source-only links.
     $guide = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot '使用说明.txt')
     $guide | Set-Content -LiteralPath (Join-Path $portable 'README.md') -Encoding UTF8

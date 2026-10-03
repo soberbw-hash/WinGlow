@@ -156,7 +156,7 @@ pub fn parse(bytes: &[u8], scope: Scope) -> Result<Vec<Entry>> {
         .iter()
         .map(|s| s.to_string())
         .collect(),
-        Scope::Fonts => bail!("不迁移旧版字体安装记录。"),
+        _ => bail!("不迁移此类旧版记录。"),
     };
     let entries: Vec<_> = names
         .into_iter()

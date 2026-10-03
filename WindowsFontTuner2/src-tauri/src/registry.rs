@@ -13,8 +13,17 @@ pub enum Scope {
     Substitutes,
     Links,
     Fonts,
+    SystemFonts,
+    UserSystemFonts,
     Desktop,
     Avalon(String),
+    Explorer,
+    IconOverrides,
+    DesktopView,
+    MenuVerb { machine: bool, path: String },
+    BlockedExtensions,
+    MachineBlockedExtensions,
+    Startup,
 }
 
 impl Scope {
@@ -26,17 +35,39 @@ impl Scope {
             Self::Links => {
                 r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\FontLink\SystemLink".into()
             }
-            Self::Fonts => r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts".into(),
+            Self::Fonts | Self::SystemFonts | Self::UserSystemFonts => {
+                r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts".into()
+            }
             Self::Desktop => r"Control Panel\Desktop".into(),
             Self::Avalon(display) => format!(r"Software\Microsoft\Avalon.Graphics\{display}"),
+            Self::Explorer => r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced".into(),
+            Self::IconOverrides => {
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons".into()
+            }
+            Self::DesktopView => r"Software\Microsoft\Windows\Shell\Bags\1\Desktop".into(),
+            Self::MenuVerb { path, .. } => format!(r"Software\Classes\{path}"),
+            Self::BlockedExtensions | Self::MachineBlockedExtensions => {
+                r"Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked".into()
+            }
+            Self::Startup => r"Software\Microsoft\Windows\CurrentVersion\Run".into(),
         }
     }
     fn root(&self) -> RegKey {
-        RegKey::predef(if matches!(self, Self::Desktop | Self::Avalon(_)) {
-            HKEY_CURRENT_USER
-        } else {
-            HKEY_LOCAL_MACHINE
-        })
+        RegKey::predef(
+            if matches!(
+                self,
+                Self::SystemFonts
+                    | Self::MachineBlockedExtensions
+                    | Self::Substitutes
+                    | Self::Links
+                    | Self::Fonts
+                    | Self::MenuVerb { machine: true, .. }
+            ) {
+                HKEY_LOCAL_MACHINE
+            } else {
+                HKEY_CURRENT_USER
+            },
+        )
     }
 }
 
@@ -126,6 +157,9 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
             .strip_suffix(" (TrueType)")
             .or_else(|| slot.name.strip_suffix(" (OpenType)"))
             .is_some_and(known_font_name),
+        Scope::SystemFonts | Scope::UserSystemFonts => crate::repair::SYSTEM_FONTS
+            .iter()
+            .any(|(name, _)| *name == slot.name),
         Scope::Desktop => [
             "FontSmoothing",
             "FontSmoothingType",
@@ -144,6 +178,19 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
             ]
             .contains(&slot.name.as_str())
         }
+        Scope::Explorer => matches!(
+            slot.name.as_str(),
+            "HideIcons" | "HideFileExt" | "TaskbarGlomLevel"
+        ),
+        Scope::IconOverrides => matches!(slot.name.as_str(), "29" | "77"),
+        Scope::DesktopView => slot.name == "FFlags",
+        Scope::MenuVerb { path, .. } => {
+            crate::menu::valid_verb_path(path) && slot.name == "LegacyDisable"
+        }
+        Scope::BlockedExtensions | Scope::MachineBlockedExtensions => {
+            uuid::Uuid::parse_str(slot.name.trim_matches(['{', '}'])).is_ok()
+        }
+        Scope::Startup => slot.name == "WindowsWeitiao-Breeze",
     };
     if !allowed {
         bail!("备份中包含不受本工具管理的注册表项：{}。", slot.name);
@@ -152,7 +199,7 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
 }
 
 pub fn validate_entries(entries: &[Entry]) -> Result<()> {
-    if entries.len() > 200 {
+    if entries.len() > 2000 {
         bail!("备份条目过多。");
     }
     let mut seen = std::collections::BTreeSet::new();
@@ -253,5 +300,13 @@ mod tests {
     #[test]
     fn unicode_registry_strings_round_trip() {
         assert_eq!(as_string(&string("苹方\\字体")), Some("苹方\\字体".into()));
+    }
+    #[test]
+    fn cosmetic_switches_cannot_write_privilege_or_arbitrary_values() {
+        assert!(validate_slot(&slot(Scope::Explorer, "EnableLUA")).is_err());
+        assert!(validate_slot(&slot(Scope::IconOverrides, "29")).is_ok());
+        assert!(validate_slot(&slot(Scope::IconOverrides, "77")).is_ok());
+        assert!(validate_slot(&slot(Scope::Startup, "anything.exe")).is_err());
+        assert!(validate_slot(&slot(Scope::SystemFonts, "arbitrary font (TrueType)")).is_err());
     }
 }

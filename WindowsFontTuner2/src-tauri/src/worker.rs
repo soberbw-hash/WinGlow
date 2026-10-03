@@ -27,7 +27,7 @@ use windows::{
 fn wide(s: impl AsRef<OsStr>) -> Vec<u16> {
     s.as_ref().encode_wide().chain([0]).collect()
 }
-struct OperationLock(HANDLE);
+pub(crate) struct OperationLock(HANDLE);
 impl Drop for OperationLock {
     fn drop(&mut self) {
         unsafe {
@@ -36,7 +36,7 @@ impl Drop for OperationLock {
         }
     }
 }
-fn lock() -> Result<OperationLock> {
+pub(crate) fn lock() -> Result<OperationLock> {
     let name = wide("Global\\WindowsWeitiaoFontTransaction");
     let handle = unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) }?;
     let wait = unsafe { WaitForSingleObject(handle, 0) };
@@ -44,7 +44,7 @@ fn lock() -> Result<OperationLock> {
         unsafe {
             let _ = CloseHandle(handle);
         }
-        bail!("另一项字体修改正在进行，请稍后再试。");
+        bail!("另一项修改正在进行，请稍后再试。");
     }
     Ok(OperationLock(handle))
 }
@@ -63,6 +63,24 @@ pub fn replace_file(source: &Path, target: &Path) -> Result<()> {
 }
 
 fn elevate(nonce: &str) -> Result<()> {
+    // ShellExecuteEx is called on a blocking pool thread, which has no COM apartment.
+    let com = unsafe {
+        windows::Win32::System::Com::CoInitializeEx(
+            None,
+            windows::Win32::System::Com::COINIT_APARTMENTTHREADED,
+        )
+    };
+    struct ComGuard(bool);
+    impl Drop for ComGuard {
+        fn drop(&mut self) {
+            if self.0 {
+                unsafe {
+                    windows::Win32::System::Com::CoUninitialize();
+                }
+            }
+        }
+    }
+    let _com = ComGuard(com.is_ok());
     let exe = wide(env::current_exe()?);
     let verb = wide("runas");
     let args = wide(format!("--font-worker {nonce}"));
@@ -100,9 +118,20 @@ fn request_dir(nonce: &str) -> Result<std::path::PathBuf> {
 }
 
 pub fn run(operation: Operation) -> Result<ActionResult> {
+    let needs_admin = match &operation {
+        Operation::Toggle { .. } => false,
+        Operation::Menu { id, .. } => crate::menu::needs_admin(id)?,
+        Operation::RestoreCategory { category } => category == "menu" || category == "all-last",
+        _ => true,
+    };
+    // Desktop and Breeze operations always run as the user; do not inject an elevated engine.
+    if !needs_admin {
+        let _guard = lock()?;
+        return dispatch(operation);
+    }
     if unsafe { IsUserAnAdmin().as_bool() } {
         let _guard = lock()?;
-        return font_engine::perform(operation);
+        return dispatch(operation);
     }
     let nonce = uuid::Uuid::new_v4().to_string();
     let dir = request_dir(&nonce)?;
@@ -140,7 +169,7 @@ fn worker(nonce: &str) -> Result<()> {
     let operation: Operation = serde_json::from_slice(&fs::read(request)?)?;
     let outcome = (|| {
         let _guard = lock()?;
-        font_engine::perform(operation)
+        dispatch(operation)
     })();
     let response = match outcome {
         Ok(result) => WorkerResponse {
@@ -154,6 +183,22 @@ fn worker(nonce: &str) -> Result<()> {
     };
     transaction::persist_new(&dir.join("response.json"), &serde_json::to_vec(&response)?)?;
     Ok(())
+}
+
+fn dispatch(operation: Operation) -> Result<ActionResult> {
+    match operation {
+        Operation::Toggle { id, enabled } => crate::shell_engine::toggle(&id, enabled),
+        Operation::Menu { id, enabled } => crate::shell_engine::toggle_menu(&id, enabled),
+        Operation::RestoreCategory { category } => {
+            if category == "all-last" {
+                crate::shell_engine::undo()
+            } else {
+                crate::shell_engine::restore(&category)
+            }
+        }
+        Operation::Repair => crate::repair::run(),
+        font_operation => font_engine::perform(font_operation),
+    }
 }
 
 fn show_message(text: &str, error: bool) {
@@ -191,6 +236,30 @@ pub fn handle_cli() -> bool {
                 serde_json::to_string_pretty(&data).unwrap_or_default()
             ),
             Err(e) => eprintln!("{e:#}"),
+        };
+        return true;
+    }
+    if args.iter().any(|a| a == "--diagnose-shell") {
+        match crate::shell_engine::load() {
+            Ok(data) => println!(
+                "{}",
+                serde_json::to_string_pretty(&data).unwrap_or_default()
+            ),
+            Err(e) => eprintln!("{e:#}"),
+        };
+        return true;
+    }
+    if args.iter().any(|a| a == "--diagnose-desktop") {
+        match crate::desktop::flags() {
+            Ok(flags) => println!("Desktop folder flags: {flags:#x}"),
+            Err(e) => eprintln!("{e:#}"),
+        };
+        return true;
+    }
+    if args.iter().any(|a| a == "--repair-system") {
+        match run(Operation::Repair) {
+            Ok(result) => show_message(&result.message, false),
+            Err(e) => show_message(&format!("{e:#}"), true),
         };
         return true;
     }

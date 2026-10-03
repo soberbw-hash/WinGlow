@@ -1,8 +1,13 @@
+mod breeze;
+mod desktop;
 mod font_engine;
 mod legacy;
+mod menu;
 mod models;
 mod preset_data;
 mod registry;
+mod repair;
+mod shell_engine;
 mod transaction;
 mod worker;
 
@@ -44,6 +49,48 @@ async fn import_fonts(paths: Vec<String>) -> Result<ActionResult, String> {
         .map_err(|e| format!("{e:#}"))
 }
 
+#[tauri::command]
+async fn load_shell() -> Result<models::ShellState, String> {
+    tauri::async_runtime::spawn_blocking(shell_engine::load)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn set_tweak(id: String, enabled: bool) -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || worker::run(Operation::Toggle { id, enabled }))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn set_menu_item(id: String, enabled: bool) -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || worker::run(Operation::Menu { id, enabled }))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn restore_category(category: String) -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        worker::run(Operation::RestoreCategory { category })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn repair_system() -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || worker::run(Operation::Repair))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+fn repair_progress() -> Result<models::RepairProgress, String> {
+    repair::progress().map_err(|e| format!("{e:#}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if worker::handle_cli() {
@@ -56,7 +103,13 @@ pub fn run() {
             load_bootstrap,
             apply_font,
             restore_fonts,
-            import_fonts
+            import_fonts,
+            load_shell,
+            set_tweak,
+            set_menu_item,
+            restore_category,
+            repair_system,
+            repair_progress
         ])
         .run(tauri::generate_context!())
         .expect("启动 Windows 微调失败");

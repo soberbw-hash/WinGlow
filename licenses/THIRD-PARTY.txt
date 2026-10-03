@@ -1,0 +1,10 @@
+Windows 微调：软件主体 MIT；内置字体使用各自许可证。
+
+Breeze Shell 0.1.34：AGPL-3.0，独立、未经修改的上游可执行程序。
+本安装包和便携包不包含 Breeze 可执行程序或 DLL。用户开启 Breeze 开关时，程序从官方 release 下载并校验固定 SHA-256，然后以普通用户权限运行。
+上游源码：https://github.com/std-microblock/breeze-shell/tree/0.1.34
+上游发行版：https://github.com/std-microblock/breeze-shell/releases/tag/0.1.34
+许可证全文：Breeze-AGPL-3.0.txt
+下载文件 SHA-256：80294ffea75113a7f65eecbe777b579ce671559f0b49f2a83b291ec865f433c2
+
+ContextMenuManager 与 Nilesoft Shell 仅作为研究参考；未复制其实现或打包其二进制文件。

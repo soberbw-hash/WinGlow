@@ -1,30 +1,33 @@
 # Windows 微调
 
-让 Windows 更合心意。调整字体、右键菜单与界面细节。
+让 Windows 更合心意。调整字体、右键菜单与桌面细节。
 
-3.0.0 本地测试版重做了字体页面与底层操作流程：选字体、比较更换前后、应用。右键菜单和界面细节目前只有导航入口，功能后续实现。公开发布版本以 [GitHub Releases](https://github.com/soberbw-hash/WindowsFontTuner/releases) 为准。
+3.1.0 本地测试版。三个分类都已接入操作；字体页只保留选择、前后比较与应用。公开发布以 [GitHub Releases](https://github.com/soberbw-hash/WindowsFontTuner/releases) 为准。
 
-## 字体
+## 功能
 
-- HarmonyOS Sans：内置常规、中等、粗体。
-- 思源黑体：内置常规、中等、粗体，供比较测试。
-- 苹方：自行导入有权使用的静态 PingFang SC 字体，至少包含常规和粗体。导入后先预览，再应用；安装包不附带苹方或 SF Pro。
+- 字体：HarmonyOS Sans、思源黑体、苹方。前两套内置常规、中等、粗体；苹方由用户导入有权使用的静态 PingFang SC，至少含常规与粗体。安装包不附带苹方或 SF Pro。
+- 右键菜单：真实菜单项的开关、查找、刷新；Breeze 美化开关。管理常见经典菜单注册项，不覆盖全部 Windows 11 新式菜单或 ContextMenuManager 的全部功能。
+- 基础美化：隐藏快捷方式箭头、隐藏盾牌角标、隐藏桌面图标文字、隐藏桌面图标、显示文件扩展名。隐藏文字不改文件名；盾牌覆盖是实验功能，不关闭 UAC。
+- 还原：默认字体、分类还原、撤销最近修改；普通还原无效时，可运行 Windows 扫描并修复。
 
-主界面不提供渲染参数、场景切换或推荐分数。前后预览比较字形，不能代替真实 Windows 界面的效果验证。
+## 使用与还原
 
-## 使用
+Windows 10 / 11 x64，使用系统 WebView2。正常打开无需管理员权限，需要修改系统位置时才请求提权。应用后重新打开目标程序，字体、覆盖图标和 Breeze 的完整切换可能需要注销。程序不会结束用户应用、杀 Explorer 或自动注销、重启。
 
-支持 Windows 10 / 11 x64，使用系统 WebView2。打开程序无需管理员权限；导入、应用和恢复时会请求管理员权限。应用后重新打开目标应用，部分界面需要注销后生效；程序不会关闭你的应用或自动注销。
+Breeze 首次开启时从官方 release 下载固定版本 0.1.34，并验证 SHA-256。它作为单独、未修改的上游进程运行；安装包不内置其 EXE/DLL。关闭后移除本工具添加的登录启动设置、停止注入进程，注销后原菜单才完整恢复。原有第三方 Breeze 配置仍保留。
 
-在「恢复与设置」中可恢复上次修改、恢复默认映射、打开备份。按住 Shift 启动，或运行 `windowsfonttuner2.exe --emergency-reset`，恢复最近一次修改前的设置。备份损坏或不存在时会报告错误。
+每次写入前保存原值的类型、字节与“不存在”状态，写入后回读校验；失败自动回退，未完成事务阻止继续修改。桌面文字的实时状态也保存。备份沿用 `%LOCALAPPDATA%\WindowsFontTuner\Backups`，兼容旧版选择性 REG 恢复。恢复本身也会备份，支持撤销。
 
-每次修改前记录受影响注册表值的原类型、内容及不存在状态，写入后回读校验。失败自动回退；发现未完成事务时先恢复再继续。备份保存在 `%LOCALAPPDATA%\WindowsFontTuner\Backups`，沿用旧版位置并支持选择性读取旧版 REG 备份。
+按住 Shift 启动或运行 `windowsfonttuner2.exe --emergency-reset` 可恢复最近的字体修改。无法正常进入界面时，可运行 `windowsfonttuner2.exe --repair-system`；它会请求管理员权限并执行同样的扫描修复流程。
 
-此版本安装和映射候选字体，保留 ClearType 参数、Emoji 与图标字体。它不会替换 Windows 系统字体文件。硬编码字体及部分 DirectWrite、WinUI、UWP 界面可能不响应映射；不能保证达到系统文件替换教程的覆盖范围。默认恢复不修复第三方覆盖或损坏的系统字体文件。
+扫描修复依次尝试 DISM RestoreHealth、SFC scannow，再恢复本工具管理的默认字体映射与校验过的 Windows 字体注册信息。保留完整日志、退出码和修复前快照。可显式绕过损坏的字体备份并隔离该备份，保留原文件；这不等于完成原快照的精确撤销。有效的未完成菜单/桌面事务不会被字体修复假装完成。日志位于 `%LOCALAPPDATA%\WindowsFontTuner\RepairLogs`。网络或系统源错误会明确报告。
+
+字体使用安装与映射方式，不直接覆盖系统字体文件；部分 DirectWrite、WinUI、UWP 界面可能不响应映射。SFC 是系统文件修复，并不能保证所有第三方修改都可恢复。实际覆盖范围、Breeze 注入、盾牌显示、真实应用/还原仍需 Windows 实机验证；构建和自动测试通过不代表上述效果已全部验证。
 
 ## 开发
 
-主线目录：`WindowsFontTuner2/`。Rust + Tauri 2，React + TypeScript；根目录 C#/WinForms 文件及旧版打包脚本保留为历史参考。
+主线目录 `WindowsFontTuner2/`：Rust + Tauri 2、React + TypeScript。根目录 C#/WinForms 工程保留为历史参考。
 
 ```powershell
 cd WindowsFontTuner2
@@ -32,14 +35,17 @@ npm ci
 npm run tauri dev
 ```
 
-检查并生成安装版、便携包与 SHA-256 清单：
+生成安装包、便携包与 SHA-256 清单：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/Build-ModernPackages.ps1
 ```
 
 - [开发与恢复约定](docs/development.md)
-- [视频研究与字体优化边界](docs/font-research.md)
+- [视频研究与字体边界](docs/font-research.md)
+- [右键菜单研究](docs/context-menu-research.md)
+- [3.1.0 验证记录](docs/verification-3.1.0.md)
 - [字体授权与来源](字体授权说明.md)
+- [外部引擎声明](licenses/THIRD-PARTY.txt)
 
-软件代码采用 MIT；字体沿用各自的许可证。
+软件主体 MIT；字体沿用各自许可证，外部 Breeze 使用 AGPL-3.0。

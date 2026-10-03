@@ -39,6 +39,51 @@ pub enum Operation {
     Restore {
         mode: String,
     },
+    Toggle {
+        id: String,
+        enabled: bool,
+    },
+    Menu {
+        id: String,
+        enabled: bool,
+    },
+    RestoreCategory {
+        category: String,
+    },
+    Repair,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToggleState {
+    pub id: String,
+    pub label: String,
+    pub enabled: bool,
+    pub note: Option<String>,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MenuItem {
+    pub id: String,
+    pub label: String,
+    pub group: String,
+    pub enabled: bool,
+    pub kind: String,
+}
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellState {
+    pub items: Vec<MenuItem>,
+    pub tweaks: Vec<ToggleState>,
+    pub breeze_enabled: bool,
+    pub pending_recovery: bool,
+}
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RepairProgress {
+    pub running: bool,
+    pub stage: String,
+    pub log_dir: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -1,15 +1,29 @@
-Windows 微调 3.0.0 本地测试版
+Windows 微调 3.1.0 本地测试版
 
 字体：选择 HarmonyOS Sans、思源黑体或苹方，比较前后，点击应用。
-苹方需要自行导入有权使用的静态 PingFang SC 字体，包含常规和粗体；先导入预览，再应用。
-应用或恢复时请求管理员权限。应用后重新打开目标程序；部分界面需要注销。
+苹方需导入有权使用的静态 PingFang SC，至少包含常规与粗体。
+应用后重新打开目标程序，部分界面需要注销。
 
-恢复：进入「恢复与设置」。程序每次写入前自动备份，失败自动回退。
-急救：按住 Shift 启动，恢复最近一次修改前的设置。
-命令：windowsfonttuner2.exe --emergency-reset
+右键菜单：开关控制常见菜单项，可查找、刷新。
+Breeze 美化：首次开启需要联网下载官方引擎。关闭后注销恢复原菜单。
+不要以管理员权限打开应用来启用 Breeze。
+
+基础美化：开关控制快捷方式箭头、盾牌角标、桌面图标文字、桌面图标与扩展名。
+隐藏文字不改文件名。盾牌覆盖为实验功能，部分系统可能不生效；不关闭 UAC。
+
+还原：默认字体、还原右键菜单、还原基础美化、撤销最近修改。
+普通还原无效时，点击扫描并修复，运行 Windows DISM 和 SFC 并恢复默认字体映射。
+期间不要关闭程序。可能需要联网，结束后注销或重启。
+扫描退出不等于所有第三方修改已修复，失败请保留修复日志。
+
 备份：%LOCALAPPDATA%\WindowsFontTuner\Backups
+修复日志：%LOCALAPPDATA%\WindowsFontTuner\RepairLogs
+Shift 启动 / windowsfonttuner2.exe --emergency-reset：恢复最近字体修改。
+windowsfonttuner2.exe --repair-system：界面打不开时运行系统扫描修复。
 
-当前采用字体安装与注册表映射，不覆盖 Windows 系统字体文件。
-部分 DirectWrite、WinUI、UWP 界面可能不响应映射。
-右键菜单与界面细节功能尚未实现。
-本地测试版不代表 GitHub 已发布。
+每次修改前自动保存原值，失败回退。需要系统权限时才提权。
+不直接覆盖 Windows 字体文件，不自动关闭程序、注销或重启。
+部分 DirectWrite、WinUI、UWP 界面可能不响应字体映射。
+安装版与便携版需 Windows 10/11 x64 与系统 WebView2。
+Breeze 使用单独的未修改上游引擎；来源与许可证见 licenses。
+本地测试版，自动检查通过；真实应用与还原仍需实机验证，未发布 GitHub Release。

@@ -18,6 +18,8 @@ pub struct Journal {
     pub operation: String,
     pub before: Vec<Entry>,
     pub after: Vec<Entry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desktop_labels_before: Option<bool>,
 }
 
 pub fn persist_new(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -76,6 +78,16 @@ pub fn execute(
     desired: Vec<Entry>,
     activate: impl FnOnce() -> Result<()>,
 ) -> Result<PathBuf> {
+    execute_with_view(store, dir, operation, desired, None, activate)
+}
+pub fn execute_with_view(
+    store: &mut impl ValueStore,
+    dir: &Path,
+    operation: &str,
+    desired: Vec<Entry>,
+    desktop_labels_before: Option<bool>,
+    activate: impl FnOnce() -> Result<()>,
+) -> Result<PathBuf> {
     validate_entries(&desired)?;
     let before = desired
         .iter()
@@ -92,12 +104,13 @@ pub fn execute(
         operation: operation.into(),
         before,
         after: desired,
+        desktop_labels_before,
     };
-    persist_new(
-        &dir.join("snapshot.json"),
-        &serde_json::to_vec_pretty(&journal)?,
-    )
-    .context("保存备份失败，未修改字体设置。")?;
+    let bytes = serde_json::to_vec_pretty(&journal)?;
+    if bytes.len() > 2_000_000 {
+        bail!("备份超过大小限制，未修改设置。");
+    }
+    persist_new(&dir.join("snapshot.json"), &bytes).context("保存备份失败，未修改字体设置。")?;
     let outcome = write_and_verify(store, &journal.after)
         .and_then(|_| activate())
         .and_then(|_| persist_new(&dir.join("committed"), b"ok"));
@@ -139,6 +152,7 @@ pub fn is_pending(dir: &Path) -> bool {
     !dir.join("committed").exists()
         && !dir.join("rolled-back").exists()
         && !dir.join("recovered").exists()
+        && !dir.join("quarantined").exists()
 }
 
 #[cfg(test)]
@@ -175,6 +189,27 @@ mod tests {
     }
     fn dir() -> PathBuf {
         std::env::temp_dir().join(format!("weitiao-test-{}", uuid::Uuid::new_v4()))
+    }
+    #[test]
+    fn live_desktop_state_is_saved_even_without_persistent_flags() {
+        let mut store = Fake::default();
+        let d = dir();
+        execute_with_view(
+            &mut store,
+            &d,
+            "tweak:desktop-labels",
+            vec![Entry {
+                slot: slot(Scope::DesktopView, "FFlags"),
+                value: Some(crate::shell_engine::dword(0x20000)),
+            }],
+            Some(true),
+            || Ok(()),
+        )
+        .unwrap();
+        let j = read_journal(&d).unwrap();
+        assert_eq!(j.desktop_labels_before, Some(true));
+        assert_eq!(j.before[0].value, None);
+        fs::remove_dir_all(d).unwrap();
     }
     fn desired() -> Vec<Entry> {
         vec![
@@ -238,6 +273,167 @@ mod tests {
         };
         assert!(execute(&mut s, &d, "apply", desired(), || Ok(())).is_err());
         assert!(!d.join("committed").exists());
+        fs::remove_dir_all(d).unwrap();
+    }
+
+    // Exercise real Win32 registry byte/type semantics in an isolated disposable hive.
+    // This test never writes the production font or Explorer keys.
+    struct IsolatedRegistry {
+        key: winreg::RegKey,
+        path: String,
+        fail_at: Option<usize>,
+        writes: usize,
+    }
+    impl IsolatedRegistry {
+        fn new() -> Self {
+            let path = format!(
+                r"Software\WindowsWeitiao\TransactionTests\{}",
+                uuid::Uuid::new_v4()
+            );
+            let key = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+                .create_subkey(&path)
+                .unwrap()
+                .0;
+            Self {
+                key,
+                path,
+                fail_at: None,
+                writes: 0,
+            }
+        }
+    }
+    impl Drop for IsolatedRegistry {
+        fn drop(&mut self) {
+            assert!(
+                self.path
+                    .starts_with(r"Software\WindowsWeitiao\TransactionTests\")
+            );
+            let _ = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+                .delete_subkey_all(&self.path);
+        }
+    }
+    impl ValueStore for IsolatedRegistry {
+        fn read(&self, slot: &Slot) -> Result<Option<StoredValue>> {
+            match self.key.get_raw_value(&slot.name) {
+                Ok(v) => Ok(Some(StoredValue {
+                    kind: v.vtype as u32,
+                    bytes: v.bytes.to_vec(),
+                })),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(e.into()),
+            }
+        }
+        fn write(&mut self, e: &Entry) -> Result<()> {
+            self.writes += 1;
+            if self.fail_at == Some(self.writes) {
+                bail!("injected native write failure");
+            }
+            if let Some(v) = &e.value {
+                let kind = match v.kind {
+                    1 => winreg::enums::REG_SZ,
+                    4 => winreg::enums::REG_DWORD,
+                    7 => winreg::enums::REG_MULTI_SZ,
+                    _ => bail!("unsupported test value"),
+                };
+                self.key.set_raw_value(
+                    &e.slot.name,
+                    &winreg::RegValue {
+                        bytes: v.bytes.clone().into(),
+                        vtype: kind,
+                    },
+                )?;
+            } else {
+                match self.key.delete_value(&e.slot.name) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            Ok(())
+        }
+    }
+    #[test]
+    fn native_registry_exact_type_and_absence_are_restored() {
+        let mut store = IsolatedRegistry::new();
+        let a = slot(Scope::IconOverrides, "29");
+        let b = slot(Scope::DesktopView, "FFlags");
+        let c = slot(Scope::Substitutes, "Segoe UI");
+        let previous = vec![
+            Entry {
+                slot: a.clone(),
+                value: Some(string("用户的原图标,0")),
+            },
+            Entry {
+                slot: b.clone(),
+                value: Some(crate::shell_engine::dword(0x12345678)),
+            },
+            Entry {
+                slot: c.clone(),
+                value: None,
+            },
+        ];
+        write_and_verify(&mut store, &previous).unwrap();
+        let d = dir();
+        execute(
+            &mut store,
+            &d,
+            "tweak:integration",
+            vec![
+                Entry {
+                    slot: a.clone(),
+                    value: None,
+                },
+                Entry {
+                    slot: b.clone(),
+                    value: Some(crate::shell_engine::dword(0x20000)),
+                },
+                Entry {
+                    slot: c.clone(),
+                    value: Some(string("changed")),
+                },
+            ],
+            || Ok(()),
+        )
+        .unwrap();
+        let j = read_journal(&d).unwrap();
+        assert_eq!(j.before, previous);
+        write_and_verify(&mut store, &j.before).unwrap();
+        assert_eq!(store.read(&c).unwrap(), None);
+        assert_eq!(store.read(&b).unwrap(), previous[1].value);
+        fs::remove_dir_all(d).unwrap();
+    }
+    #[test]
+    fn native_registry_partial_failure_rolls_back_before_reporting_error() {
+        let mut store = IsolatedRegistry::new();
+        let original = Entry {
+            slot: slot(Scope::Substitutes, "Segoe UI"),
+            value: Some(string("原始字形")),
+        };
+        store.write(&original).unwrap();
+        store.writes = 0;
+        store.fail_at = Some(2);
+        let d = dir();
+        assert!(execute(&mut store, &d, "integration", desired(), || Ok(())).is_err());
+        assert_eq!(store.read(&original.slot).unwrap(), original.value);
+        assert_eq!(
+            store
+                .read(&slot(Scope::Substitutes, "Microsoft YaHei"))
+                .unwrap(),
+            None
+        );
+        assert!(d.join("rolled-back").is_file());
+        fs::remove_dir_all(d).unwrap();
+    }
+    #[test]
+    fn corrupt_snapshot_is_not_used_and_quarantine_preserves_it() {
+        let d = dir();
+        fs::create_dir_all(&d).unwrap();
+        fs::write(d.join("snapshot.json"), b"{broken").unwrap();
+        assert!(is_pending(&d));
+        assert!(read_journal(&d).is_err());
+        persist_new(&d.join("quarantined"), b"explicit repair").unwrap();
+        assert!(!is_pending(&d));
+        assert_eq!(fs::read(d.join("snapshot.json")).unwrap(), b"{broken");
         fs::remove_dir_all(d).unwrap();
     }
 }

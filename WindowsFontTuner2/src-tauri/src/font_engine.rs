@@ -358,7 +358,7 @@ fn deactivate(paths: &[PathBuf]) {
         }
     }
 }
-fn notify() {
+pub(crate) fn notify() {
     unsafe {
         let _ = SendMessageTimeoutW(
             HWND_BROADCAST,
@@ -452,9 +452,7 @@ pub fn load_bootstrap() -> Result<BootstrapPayload> {
     fs::create_dir_all(&root)?;
     let dirs = transaction::backup_directories(&root)?;
     let pending = dirs.iter().find(|d| transaction::is_pending(d));
-    if let Some(d) = pending {
-        transaction::read_journal(d)?;
-    }
+    let damaged = pending.is_some_and(|d| transaction::read_journal(d).is_err());
     let pingfang = installed_pingfang();
     Ok(BootstrapPayload {
         presets: PRESETS
@@ -469,14 +467,21 @@ pub fn load_bootstrap() -> Result<BootstrapPayload> {
             .iter()
             .any(|d| transaction::is_pending(d) || d.join("committed").exists())
             || legacy_backup(false)?.is_some(),
-        pending_recovery: pending.map(|_| "上次修改没有完成，请先恢复再继续。".into()),
+        pending_recovery: pending.map(|_| {
+            if damaged {
+                "备份无法读取。请到还原页扫描修复。"
+            } else {
+                "上次修改没有完成，请先还原。"
+            }
+            .into()
+        }),
     })
 }
 
 pub fn perform(operation: Operation) -> Result<ActionResult> {
     let mut store = WindowsRegistry;
     let dirs = transaction::backup_directories(&backup_root()?)?;
-    if !matches!(&operation,Operation::Restore{mode} if mode=="last")
+    if !matches!(&operation,Operation::Restore{mode} if mode=="last" || mode=="force-default")
         && dirs.iter().any(|d| transaction::is_pending(d))
     {
         bail!("存在未完成的修改，请先恢复。");
@@ -541,17 +546,25 @@ pub fn perform(operation: Operation) -> Result<ActionResult> {
             })
         }
         Operation::Restore { mode } => {
+            let force = mode == "force-default";
             let source = dirs
                 .iter()
                 .find(|d| transaction::is_pending(d))
-                .or_else(|| dirs.iter().find(|d| d.join("committed").exists()));
+                .or_else(|| {
+                    dirs.iter().find(|d| {
+                        d.join("committed").exists()
+                            && !d.join("undone").exists()
+                            && transaction::read_journal(d)
+                                .is_ok_and(|j| j.operation.starts_with("apply:"))
+                    })
+                });
             let desired = if mode == "last" {
                 if let Some(dir) = source {
                     transaction::read_journal(dir)?.before
                 } else {
                     legacy_restore()?.ok_or_else(|| anyhow!("没有可恢复的备份。"))?
                 }
-            } else if mode == "default" {
+            } else if mode == "default" || force {
                 let mut entries = Vec::new();
                 for alias in MANAGED_ALIASES {
                     entries.push(Entry {
@@ -562,18 +575,33 @@ pub fn perform(operation: Operation) -> Result<ActionResult> {
                 // Earliest snapshots contain the original link values. Load each journal once.
                 let mut originals = std::collections::BTreeMap::new();
                 for dir in dirs.iter().rev() {
-                    for entry in transaction::read_journal(dir)?.before {
-                        if entry.slot.scope == Scope::Links {
+                    let journal = match transaction::read_journal(dir) {
+                        Ok(j) => j,
+                        Err(_) if force => continue,
+                        Err(e) => return Err(e),
+                    };
+                    if !(dir.join("committed").exists() || transaction::is_pending(dir)) {
+                        continue;
+                    }
+                    for entry in journal.before {
+                        if matches!(
+                            entry.slot.scope,
+                            Scope::Links | Scope::Desktop | Scope::Avalon(_)
+                        ) {
                             originals.entry(entry.slot.clone()).or_insert(entry);
                         }
                     }
                 }
                 entries.extend(originals.into_values());
                 if let Some(dir) = legacy_backup(true)? {
-                    let path = dir.join("FontLink.reg");
-                    if path.is_file() {
-                        entries.extend(crate::legacy::parse(&fs::read(path)?, Scope::Links)?);
-                    }
+                    match crate::legacy::read_backup(&dir) {
+                        Ok(old) => entries.extend(
+                            old.into_iter()
+                                .filter(|e| e.slot.scope != Scope::Substitutes),
+                        ),
+                        Err(_) if force => {}
+                        Err(e) => return Err(e),
+                    };
                 }
                 // v2 recovery can already have copied alias links into a v3 journal.
                 // Prefer the original v2 link value and write each slot exactly once.
@@ -590,13 +618,44 @@ pub fn perform(operation: Operation) -> Result<ActionResult> {
             );
             notify();
             backup?;
-            if let Some(dir) = source.filter(|d| transaction::is_pending(d)) {
+            if let Some(dir) = source.filter(|d| !force && transaction::is_pending(d)) {
                 transaction::persist_new(&dir.join("recovered"), b"ok")?;
+            } else if mode == "last"
+                && let Some(dir) = source
+            {
+                transaction::persist_new(&dir.join("undone"), b"ok")?;
+            }
+            if force {
+                for dir in &dirs {
+                    if transaction::is_pending(dir)
+                        && transaction::read_journal(dir).map_or(true, |j| {
+                            j.before.iter().all(|e| {
+                                matches!(
+                                    e.slot.scope,
+                                    Scope::Substitutes
+                                        | Scope::Links
+                                        | Scope::Fonts
+                                        | Scope::SystemFonts
+                                        | Scope::UserSystemFonts
+                                        | Scope::Desktop
+                                        | Scope::Avalon(_)
+                                )
+                            })
+                        })
+                    {
+                        // Preserve the original snapshot; an explicit repair is not an exact undo.
+                        transaction::persist_new(
+                            &dir.join("quarantined"),
+                            b"Explicit system font repair; exact snapshot recovery not completed.",
+                        )?;
+                    }
+                }
             }
             Ok(ActionResult {
                 message: "已恢复。重新打开应用查看效果；部分界面需要注销后生效。".into(),
             })
         }
+        _ => bail!("此操作不属于字体设置。"),
     }
 }
 

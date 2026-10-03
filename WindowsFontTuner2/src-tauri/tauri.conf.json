@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Windows 微调",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "identifier": "com.sober.windowsfonttuner2",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -43,13 +43,15 @@
       "icons/icon.ico"
     ],
     "shortDescription": "让 Windows 更合心意。",
-    "longDescription": "调整字体、右键菜单与界面细节。当前版本提供字体调整与自动备份恢复。",
+    "longDescription": "调整字体、管理与美化右键菜单、开关桌面细节。提供自动备份、分类还原与 Windows 扫描修复。",
     "resources": {
       "../../FontPackages/harmonyos-sc/LICENSE.txt": "licenses/HarmonyOS-LICENSE.txt",
       "../../FontPackages/harmonyos-sc/SOURCE.txt": "licenses/HarmonyOS-SOURCE.txt",
       "../../FontPackages/source-han-sans-cn/LICENSE.txt": "licenses/SourceHan-LICENSE.txt",
       "../../FontPackages/source-han-sans-cn/SOURCE.txt": "licenses/SourceHan-SOURCE.txt",
-      "../../LICENSE": "licenses/APP-LICENSE.txt"
+      "../../LICENSE": "licenses/APP-LICENSE.txt",
+      "../../licenses/Breeze-AGPL-3.0.txt": "licenses/Breeze-AGPL-3.0.txt",
+      "../../licenses/THIRD-PARTY.txt": "licenses/THIRD-PARTY.txt"
     },
     "windows": {
       "nsis": {
