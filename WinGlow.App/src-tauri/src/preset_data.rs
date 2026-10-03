@@ -56,8 +56,8 @@ pub const PRESETS: &[Preset] = &[
         id: "pingfang-sc",
         label: "苹方",
         family: "PingFang SC",
-        preview: "PingFang SC",
-        bundled: false,
+        preview: "PingFang Preview",
+        bundled: true,
     },
 ];
 

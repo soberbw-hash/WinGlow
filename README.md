@@ -2,7 +2,7 @@
 
 让 Windows 更合心意。调整字体、右键菜单与桌面细节。
 
-3.1.2 本地测试版。三个分类都已接入操作；字体页只保留选择、前后比较与应用。公开发布以 [GitHub Releases](https://github.com/soberbw-hash/WinGlow/releases) 为准。
+3.1.3 本地测试版。三套字体均已内置；字体页只保留选择、前后比较与应用。公开发布以 [GitHub Releases](https://github.com/soberbw-hash/WinGlow/releases) 为准。
 
 官方图标使用用户提供的原图，来源与原文件见 [品牌资源](docs/branding/README.md)。原图与来源随安装版及便携版保存。
 
@@ -12,7 +12,7 @@
 
 ## 功能
 
-- 字体：HarmonyOS Sans、思源黑体、苹方。前两套内置常规、中等、粗体；苹方由用户导入有权使用的静态 PingFang SC，至少含常规与粗体。安装包不附带苹方或 SF Pro。
+- 字体：HarmonyOS Sans、思源黑体、苹方。三套均内置常规、中等与粗体字重，可直接预览和应用；苹方使用 Windows 适配版 Regular、Medium、Semibold。来源与字体声明见 [字体资源说明](字体授权说明.md)。不附带 SF Pro。
 - 右键菜单：真实菜单项的开关、查找、刷新；Breeze 美化开关。管理常见经典菜单注册项，不覆盖全部 Windows 11 新式菜单或 ContextMenuManager 的全部功能。
 - 基础美化：隐藏快捷方式箭头、隐藏盾牌角标、隐藏桌面图标文字、隐藏桌面图标、显示文件扩展名。隐藏文字不改文件名；盾牌覆盖是实验功能，不关闭 UAC。
 - 还原：默认字体、分类还原、撤销最近修改；普通还原无效时，可运行 Windows 扫描并修复。
@@ -52,6 +52,7 @@ powershell -ExecutionPolicy Bypass -File scripts/Build-ModernPackages.ps1
 - [右键菜单研究](docs/context-menu-research.md)
 - [WinGlow 改名验证记录](docs/verification-3.1.1.md)
 - [应用后自动刷新验证记录](docs/verification-3.1.2.md)
+- [苹方内置验证记录](docs/verification-3.1.3.md)
 - [字体授权与来源](字体授权说明.md)
 - [外部引擎声明](licenses/THIRD-PARTY.txt)
 

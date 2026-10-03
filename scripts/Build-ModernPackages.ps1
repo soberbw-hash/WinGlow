@@ -35,6 +35,8 @@ try {
     Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $licenses 'APP-LICENSE.txt') -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\Breeze-AGPL-3.0.txt') -Destination $licenses -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\THIRD-PARTY.txt') -Destination $licenses -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'FontPackages\pingfang-sc\NOTICE.txt') -Destination (Join-Path $licenses 'PingFang-NOTICE.txt') -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'FontPackages\pingfang-sc\SOURCE.txt') -Destination (Join-Path $licenses 'PingFang-SOURCE.txt') -Force
     $branding = Join-Path $portable 'branding'
     New-Item -ItemType Directory -Path $branding -Force | Out-Null
     foreach ($name in @('icon-master.png','brand-source.json','README.md')) {

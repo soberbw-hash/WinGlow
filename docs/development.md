@@ -23,6 +23,8 @@ Rust stable，edition 2024，最低 1.88；Tauri 2.12.1 稳定版、React 19.3�
 - `legacy.rs`：选择性读取 v2 REG 备份，不执行 reg import。
 - `preset_data.rs`：唯一的生产字体选择与字重映射表。浏览器预览的三项模拟数据必须与此一致。
 
+3.1.3 的三套候选字体均通过 include_bytes 内置，预览使用同一组字体文件的 @font-face。候选状态和映射从真实内部完整名称、字重读取，苹方的粗体映射到 Semibold 600；保留旧版导入数据与事务快照的恢复兼容性，主界面不再出现导入入口。来源、固定提交、哈希和版权声明随软件包保存。
+
 原图、来源 JSON 与派生图标见 docs/branding，脚本 scripts/generate-brand-assets.py 统一生成。原图和来源随两种包保存。
 
 WinGlow 改名保留四类兼容记录：旧用户数据目录、原应用 identifier、与旧版共享的互斥名称、旧 WindowsWeitiao-Breeze 注册值白名单。新启动项使用 WinGlow-Breeze，检测和关闭支持旧项；历史发行记录和已发布资源文件名保留原名，不能将旧链接改成不存在的资源。
@@ -57,4 +59,4 @@ npm run tauri build -- --bundles nsis
 
 `scripts/Build-ModernPackages.ps1` 运行这些检查并生成安装包、便携包和 SHA-256 清单。公开发布前先完成 [字体实测](font-research.md) 中的真实系统检查；本地构建成功不能代表已发布。
 
-自动测试使用内存注册表后端和隔离的原生 HKCU 临时测试键，注入写入失败、激活失败、备份失败及无声写入丢失；不会更改开发电脑的字体。另检查六个内置字体的字重/常用字形和旧版 REG 解析。系统字体实测单独记录，不能用浏览器截图代替。详细边界见 verification-3.1.0.md。
+自动测试使用内存注册表后端和隔离的原生 HKCU 临时测试键，注入写入失败、激活失败、备份失败及无声写入丢失；不会更改开发电脑的字体。另检查九个内置字体的字重/常用字形和旧版 REG 解析。系统字体实测单独记录，不能用浏览器截图代替。苹方内置检查见 verification-3.1.3.md，事务检查的详细边界见 verification-3.1.0.md。

@@ -1,0 +1,18 @@
+Source: https://github.com/ACT-02/PingFang-for-Windows
+Pinned commit: 8444592e20420a9d412a851542f00f7ee9c3144f
+Downloaded: 2026-10-03
+Original bytes preserved. Regular 400 / Medium 500 / Semibold 600.
+Font copyright: Copyright © 2015 DynaComware. All rights reserved.
+Upstream does not provide a separate redistribution license. See NOTICE.txt.
+Files verified against pinned GitHub Git blob SHA-1 values.
+
+Files and SHA-256:
+f3211fb7a144834c1694856fddd38b21bc7e313f096d14c3ac47f49b69aefba2  PingFangSC-Regular.otf
+Git blob SHA-1: 0fea38f2c15e775876ed81cace5028b26c90e67a
+https://raw.githubusercontent.com/ACT-02/PingFang-for-Windows/8444592e20420a9d412a851542f00f7ee9c3144f/PingFangSC-Regular.otf
+179302d57a37ace157a724e07d38acb5365f1bc16eb48eaa9ec63ff385f9e50e  PingFangSC-Medium.otf
+Git blob SHA-1: 79c1618dbae3215fd9b5da451e6f8b4d3ac2a5ef
+https://raw.githubusercontent.com/ACT-02/PingFang-for-Windows/8444592e20420a9d412a851542f00f7ee9c3144f/PingFangSC-Medium.otf
+b27e74e2fcd0ce56327b23c8fa04d495f98837646670e1e3700afdeea1aaf681  PingFangSC-Semibold.otf
+Git blob SHA-1: dc41610d27b99aa9f431ae642043320b67f44973
+https://raw.githubusercontent.com/ACT-02/PingFang-for-Windows/8444592e20420a9d412a851542f00f7ee9c3144f/PingFangSC-Semibold.otf

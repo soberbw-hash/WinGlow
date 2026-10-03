@@ -1,0 +1,12 @@
+PingFang SC Windows-adapted fonts
+
+Copyright notice embedded in these fonts:
+Copyright © 2015 DynaComware. All rights reserved.
+
+Source repository: https://github.com/ACT-02/PingFang-for-Windows
+This repository does not include a separate font redistribution license.
+The WinGlow MIT license does not apply to these fonts. This notice records
+the source and embedded copyright; it does not grant additional font rights.
+
+Files are downloaded byte-for-byte; WinGlow does not rename or merge glyphs.
+Regular, Medium and Semibold are used for normal, medium and bold UI text.

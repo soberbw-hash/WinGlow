@@ -1,5 +1,10 @@
 WinGlow：软件主体 MIT；内置字体使用各自许可证。
 
+PingFang SC：Windows 适配版 Regular、Medium、Semibold，来源 ACT-02/PingFang-for-Windows。
+字体内嵌版权为 Copyright © 2015 DynaComware. All rights reserved.
+上游未附独立再分发许可证；WinGlow MIT 不覆盖该字体。
+精确来源与哈希见 PingFang-SOURCE.txt，字体版权声明见 PingFang-NOTICE.txt。
+
 Breeze Shell 0.1.34：AGPL-3.0，独立、未经修改的上游可执行程序。
 本安装包和便携包不包含 Breeze 可执行程序或 DLL。用户开启 Breeze 开关时，程序从官方 release 下载并校验固定 SHA-256，然后以普通用户权限运行。
 上游源码：https://github.com/std-microblock/breeze-shell/tree/0.1.34
