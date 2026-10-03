@@ -293,6 +293,32 @@ mod tests {
                 value: Some(string("")),
             },
         ];
+        let mut desired = desired;
+        for name in ["29", "77"] {
+            desired.push(Entry {
+                slot: slot(Scope::IconOverrides, name),
+                value: Some(string("owned transparent.ico,0")),
+            });
+        }
+        desired.push(Entry {
+            slot: slot(
+                Scope::MenuVerb {
+                    machine: false,
+                    path: "Directory\\shell\\Tools\\shell\\Upload".into(),
+                },
+                "LegacyDisable",
+            ),
+            value: Some(string("")),
+        });
+        desired.push(Entry {
+            slot: slot(
+                Scope::CommandStoreVerb {
+                    name: "vendor.Upload".into(),
+                },
+                "LegacyDisable",
+            ),
+            value: Some(string("")),
+        });
         for fail in [false, true] {
             let mut store = Fake::default();
             store

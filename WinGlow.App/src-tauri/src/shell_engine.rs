@@ -169,6 +169,17 @@ fn prepare_icon() -> Result<()> {
     }
     Ok(())
 }
+pub fn overlay_plan() -> Result<Vec<Entry>> {
+    prepare_icon()?;
+    let path = blank_icon_path()?;
+    Ok(["29", "77"]
+        .into_iter()
+        .map(|name| Entry {
+            slot: registry::slot(Scope::IconOverrides, name),
+            value: Some(registry::string(&path)),
+        })
+        .collect())
+}
 pub fn toggle(id: &str, enabled: bool) -> Result<ActionResult> {
     if id == "transparent-taskbar" {
         return crate::taskbar::set(enabled);
@@ -254,6 +265,7 @@ pub fn restore(category: &str) -> Result<ActionResult> {
                 "menu" => matches!(
                     entry.slot.scope,
                     Scope::MenuVerb { .. }
+                        | Scope::CommandStoreVerb { .. }
                         | Scope::BlockedExtensions
                         | Scope::MachineBlockedExtensions
                         | Scope::Startup

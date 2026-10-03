@@ -21,6 +21,7 @@ pub enum Scope {
     IconOverrides,
     DesktopView,
     MenuVerb { machine: bool, path: String },
+    CommandStoreVerb { name: String },
     BlockedExtensions,
     MachineBlockedExtensions,
     Startup,
@@ -49,6 +50,9 @@ impl Scope {
             }
             Self::DesktopView => r"Software\Microsoft\Windows\Shell\Bags\1\Desktop".into(),
             Self::MenuVerb { path, .. } => format!(r"Software\Classes\{path}"),
+            Self::CommandStoreVerb { name } => format!(
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\{name}"
+            ),
             Self::BlockedExtensions | Self::MachineBlockedExtensions => {
                 r"Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked".into()
             }
@@ -63,6 +67,7 @@ impl Scope {
             if matches!(
                 self,
                 Self::SystemFonts
+                    | Self::CommandStoreVerb { .. }
                     | Self::MachineBlockedExtensions
                     | Self::Substitutes
                     | Self::Links
@@ -195,6 +200,9 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
         Scope::TaskbarConfig => slot.name == "settings.json",
         Scope::MenuVerb { path, .. } => {
             crate::menu::valid_verb_path(path) && slot.name == "LegacyDisable"
+        }
+        Scope::CommandStoreVerb { name } => {
+            crate::menu::valid_command_name(name) && slot.name == "LegacyDisable"
         }
         Scope::BlockedExtensions | Scope::MachineBlockedExtensions => {
             uuid::Uuid::parse_str(slot.name.trim_matches(['{', '}'])).is_ok()

@@ -57,11 +57,12 @@ pub fn core(token: &str) -> Result<ActionResult> {
     uuid::Uuid::parse_str(token)?;
     shell_engine::ensure_ready()?;
     let mut entries = menu_policy::plan()?;
+    entries.extend(shell_engine::overlay_plan()?);
     entries.extend(breeze::startup_entries()?);
     if taskbar::supported() {
         entries.extend(taskbar::plan()?);
     }
-    font_engine::apply_with_extra("harmonyos-sc", entries, &format!("optimize:{token}"))
+    font_engine::apply_with_extra("harmonyos-sc-bold", entries, &format!("optimize:{token}"))
 }
 pub fn undo_core(token: &str) -> Result<ActionResult> {
     let Some(dir) = core_dir(token)? else {

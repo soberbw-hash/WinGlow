@@ -2,7 +2,7 @@
 
 让 Windows 更合心意。调整字体、右键菜单与桌面细节。
 
-3.2.0 本地测试版。首页一键优化字体、精简和美化右键菜单，并启用 Windows 11 透明任务栏；可一键撤销。三套字体内置，鸿蒙仅标准与粗两档。公开发布以 [GitHub Releases](https://github.com/soberbw-hash/WinGlow/releases) 为准。
+3.2.1 本地测试版。首页一键优化字体、精简和美化右键菜单，并启用 Windows 11 透明任务栏；可一键撤销。三套字体内置，鸿蒙仅标准与粗两档。公开发布以 [GitHub Releases](https://github.com/soberbw-hash/WinGlow/releases) 为准。
 
 官方图标使用用户提供的原图，来源与原文件见 [品牌资源](docs/branding/README.md)。原图与来源随安装版及便携版保存。
 
@@ -12,10 +12,10 @@
 
 ## 功能
 
-- 一键优化：首页一个按钮。默认鸿蒙标准字重，批量隐藏可确认的第三方附加菜单，启动 Breeze 与独立 TranslucentTB。完成后出现“撤销优化”，恢复这一轮优化前的设置；不抹掉用户本来的个性化设置。
+- 一键优化：首页一个按钮。默认鸿蒙粗体，隐藏快捷方式箭头与盾牌角标，批量精简附加菜单，启动 Breeze 与独立 TranslucentTB。完成后出现“撤销优化”，恢复这一轮优化前的设置；不抹掉用户本来的个性化设置。
 
 - 字体：HarmonyOS Sans、思源黑体、苹方。鸿蒙只增加“标准 / 粗”两个选项，粗使用真实 Bold 700，预览与应用一致。三套均内置常规、中等与粗体字重；苹方使用 Windows 适配版 Regular、Medium、Semibold。来源与字体声明见 [字体资源说明](字体授权说明.md)。不附带 SF Pro。
-- 右键菜单：新增自动精简；识别非系统程序、版本资源厂商与常见产品，保留重要系统/安全入口和无法确认用途的项目，不按固定百分比盲关。按桌面、文件夹、EXE、图片等位置筛选；紧凑列表、名称查找、资源图标及开启/关闭示意。区分一级入口、带二级菜单的入口与动态程序扩展，列出可读取的静态子项；Breeze 美化开关。注册项总数不是某一次右键的实际菜单数，动态子项与 Windows 11 新式菜单以系统实际显示为准。
+- 右键菜单：大按钮“一键精简”；桌面、文件夹、EXE、图片等位置直接点选。删除右侧说明栏，子菜单点击展开并缩进，静态子项可独立开关；程序动态扩展使用整组开关。扩大精简范围，明确包含 Defender 扫描入口、百度网盘、夸克网盘、WorkBuddy 和图片转 PDF；不关闭 Defender 防护。保留打开、删除、重命名、属性等基本操作，隐藏项可手动重新开启并支持还原。
 - 基础美化：独立透明任务栏开关（内附 TranslucentTB 2026.2，Windows 11 x64）；隐藏快捷方式箭头、隐藏盾牌角标、隐藏桌面图标文字、隐藏桌面图标、显示文件扩展名。隐藏文字不改文件名；盾牌覆盖是实验功能，不关闭 UAC。
 - 还原：默认字体、分类还原、撤销最近修改；普通还原无效时，可运行 Windows 扫描并修复。
 
@@ -56,7 +56,7 @@ powershell -ExecutionPolicy Bypass -File scripts/Build-ModernPackages.ps1
 - [应用后自动刷新验证记录](docs/verification-3.1.2.md)
 - [苹方内置验证记录](docs/verification-3.1.3.md)
 - [右键菜单分类验证记录](docs/verification-3.1.4.md)
-- [一键优化、双字重与恢复验证记录](docs/verification-3.2.0.md)
+- [一键优化、双字重与恢复验证记录](docs/verification-3.2.1.md)
 - [热门美化工具候选清单](docs/customization-candidates.md)
 - [字体授权与来源](字体授权说明.md)
 - [外部引擎声明](licenses/THIRD-PARTY.txt)

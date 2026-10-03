@@ -47,14 +47,20 @@ const PROTECTED: &[&str] = &[
     "properties",
     "printto",
 ];
+pub fn valid_command_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() < 200
+        && !name.contains(['\\', '/', '\0'])
+        && !PROTECTED.iter().any(|p| {
+            name.eq_ignore_ascii_case(p) || name.to_ascii_lowercase().ends_with(&format!(".{p}"))
+        })
+}
 pub fn valid_verb_path(path: &str) -> bool {
     ROOTS.iter().any(|(root, _)| {
         path.strip_prefix(&format!("{root}\\shell\\"))
-            .is_some_and(|name| {
-                !name.is_empty()
-                    && name.len() < 200
-                    && !name.contains(['\\', '/', '\0'])
-                    && !PROTECTED.iter().any(|p| name.eq_ignore_ascii_case(p))
+            .is_some_and(|tail| {
+                let parts: Vec<_> = tail.split("\\shell\\").collect();
+                parts.len() <= 5 && parts.iter().all(|name| valid_command_name(name))
             })
     })
 }
@@ -101,6 +107,7 @@ fn friendly(raw: &str) -> String {
         "find" => "搜索".into(),
         "print" => "打印".into(),
         "baidunetdisk" => "百度网盘".into(),
+        "quarkclouddrive ai context menu" => "夸克网盘".into(),
         "open git bash here" => "在此打开 Git Bash".into(),
         "open git gui here" => "在此打开 Git GUI".into(),
         ".spotlightlearnmore" => "了解此图片".into(),
@@ -166,33 +173,92 @@ fn context_group(class: &str, group: &str) -> String {
     }
     .into()
 }
-fn children(key: &RegKey) -> Vec<String> {
-    let mut labels = Vec::new();
-    if let Ok(shell) = key.open_subkey_with_flags("shell", KEY_READ | KEY_WOW64_64KEY) {
-        for name in shell.enum_keys().flatten().take(24) {
-            if let Ok(child) = shell.open_subkey_with_flags(&name, KEY_READ | KEY_WOW64_64KEY) {
-                labels.push(friendly(&readable(
-                    child
-                        .get_value::<String, _>("MUIVerb")
-                        .or_else(|_| child.get_value(""))
-                        .unwrap_or(name),
-                )));
+fn child_items(
+    key: &RegKey,
+    parent: &registry::Slot,
+    group: &str,
+    icons: bool,
+    depth: usize,
+    slots: &mut Vec<(MenuItem, registry::Slot)>,
+) -> Result<Vec<MenuItem>> {
+    if depth >= 4 {
+        return Ok(Vec::new());
+    }
+    let mut sources = Vec::new();
+    if let Scope::MenuVerb { machine, path } = &parent.scope
+        && let Ok(shell) = key.open_subkey_with_flags("shell", KEY_READ | KEY_WOW64_64KEY)
+    {
+        for name in shell.enum_keys().flatten().take(100) {
+            let child_path = format!("{path}\\shell\\{name}");
+            if valid_verb_path(&child_path)
+                && let Ok(child) = shell.open_subkey_with_flags(&name, KEY_READ | KEY_WOW64_64KEY)
+            {
+                sources.push((
+                    name,
+                    child,
+                    registry::slot(
+                        Scope::MenuVerb {
+                            machine: *machine,
+                            path: child_path,
+                        },
+                        "LegacyDisable",
+                    ),
+                ));
             }
         }
     }
     if let Ok(commands) = key.get_value::<String, _>("SubCommands") {
         let root = RegKey::predef(HKEY_LOCAL_MACHINE);
-        for command in commands.split(';').filter(|s| !s.is_empty()).take(24) {
-            if command.contains(['\\', '/', '\0']) {
-                continue;
-            }
-            if let Ok(child) = root.open_subkey_with_flags(format!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CommandStore\\shell\\{command}"), KEY_READ | KEY_WOW64_64KEY) {
-                let label = friendly(&readable(child.get_value::<String, _>("MUIVerb").or_else(|_| child.get_value("")).unwrap_or(command.into())));
-                if !labels.contains(&label) { labels.push(label); }
+        for name in commands
+            .split(';')
+            .filter(|s| valid_command_name(s))
+            .take(100)
+        {
+            let scope = Scope::CommandStoreVerb { name: name.into() };
+            if let Ok(child) = root.open_subkey_with_flags(scope.path(), KEY_READ | KEY_WOW64_64KEY)
+            {
+                sources.push((name.into(), child, registry::slot(scope, "LegacyDisable")));
             }
         }
     }
-    labels
+    let mut result = Vec::new();
+    for (name, child, slot) in sources {
+        if child.get_raw_value("ProgrammaticAccessOnly").is_ok() {
+            continue;
+        }
+        let label = readable(
+            child
+                .get_value::<String, _>("MUIVerb")
+                .or_else(|_| child.get_value(""))
+                .unwrap_or(name.clone()),
+        );
+        let sub_items = child_items(&child, &slot, group, icons, depth + 1, slots)?;
+        let (icon_data_url, icon_source) = item_icon(&child, None, icons);
+        let item = MenuItem {
+            id: id(&slot.scope, &name),
+            label: friendly(&label),
+            raw_label: label.clone(),
+            group: group.into(),
+            targets: targets(group),
+            enabled: child.get_raw_value("LegacyDisable").is_err(),
+            auto_hide: crate::menu_policy::should_hide(&label, &slot, &child, None),
+            kind: "子菜单".into(),
+            menu_level: if sub_items.is_empty() {
+                "direct"
+            } else {
+                "cascade"
+            }
+            .into(),
+            children: sub_items.iter().map(|i| i.label.clone()).collect(),
+            sub_items,
+            visibility_note: None,
+            icon_data_url,
+            icon_source,
+        };
+        slots.push((item.clone(), slot));
+        result.push(item);
+    }
+    Ok(result)
 }
 fn item_icon(
     key: &RegKey,
@@ -230,10 +296,14 @@ fn id(scope: &Scope, name: &str) -> String {
     )
 }
 pub fn scan() -> Result<Vec<(MenuItem, registry::Slot)>> {
-    scan_impl(true)
+    Ok(scan_impl(true)?
+        .into_iter()
+        .filter(|(item, _)| item.kind != "子菜单")
+        .collect())
 }
-fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> {
+pub(crate) fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> {
     let mut items: Vec<(MenuItem, registry::Slot)> = Vec::new();
+    let mut child_slots = Vec::new();
     for machine in [false, true] {
         let root = RegKey::predef(if machine {
             HKEY_LOCAL_MACHINE
@@ -269,7 +339,8 @@ fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> {
                             .unwrap_or(name.clone()),
                     );
                     let enabled = crate::registry::WindowsRegistry.read(&slot)?.is_none();
-                    let children = children(&key);
+                    let sub_items = child_items(&key, &slot, group, icons, 0, &mut child_slots)?;
+                    let children: Vec<String> = sub_items.iter().map(|i| i.label.clone()).collect();
                     let cascading = !children.is_empty()
                         || key.get_raw_value("SubCommands").is_ok()
                         || key.get_raw_value("ExtendedSubCommandsKey").is_ok();
@@ -283,6 +354,7 @@ fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> {
                             targets: targets(group),
                             menu_level: if cascading { "cascade" } else { "direct" }.into(),
                             children,
+                            sub_items,
                             visibility_note: if key.get_raw_value("Extended").is_ok() {
                                 Some("按住 Shift 再右键才显示。".into())
                             } else if key.get_raw_value("AppliesTo").is_ok() {
@@ -372,6 +444,7 @@ fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> {
                             targets: targets(group),
                             menu_level: "extension".into(),
                             children: vec![],
+                            sub_items: vec![],
                             visibility_note: Some("显示哪些项目由程序和所选文件决定。".into()),
                             icon_data_url,
                             icon_source,
@@ -388,6 +461,7 @@ fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> {
     items.sort_by(|a, b| {
         (&a.0.group, &a.0.label, &a.0.kind).cmp(&(&b.0.group, &b.0.label, &b.0.kind))
     });
+    items.extend(child_slots);
     Ok(items)
 }
 pub fn resolve(id: &str, enabled: bool) -> Result<Vec<Entry>> {
@@ -420,13 +494,65 @@ pub fn needs_admin(id: &str) -> Result<bool> {
     Ok(resolve(id, true)?.iter().any(|e| {
         matches!(
             e.slot.scope,
-            Scope::MenuVerb { machine: true, .. } | Scope::MachineBlockedExtensions
+            Scope::MenuVerb { machine: true, .. }
+                | Scope::CommandStoreVerb { .. }
+                | Scope::MachineBlockedExtensions
         )
     }))
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn static_children_are_real_independent_nested_switches() {
+        let root = RegKey::predef(HKEY_CURRENT_USER);
+        let path = format!(
+            r"Software\WinGlow\TransactionTests\{}",
+            uuid::Uuid::new_v4()
+        );
+        let key = root.create_subkey(&path).unwrap().0;
+        let upload = key.create_subkey(r"shell\Upload").unwrap().0;
+        upload.set_value("MUIVerb", &"上传到夸克网盘").unwrap();
+        upload.set_value("LegacyDisable", &"").unwrap();
+        key.create_subkey(r"shell\open").unwrap();
+        let nested = key.create_subkey(r"shell\Tools\shell\Inspect").unwrap().0;
+        nested.set_value("MUIVerb", &"检查").unwrap();
+        let parent = registry::slot(
+            Scope::MenuVerb {
+                machine: false,
+                path: r"Directory\shell\Fixture".into(),
+            },
+            "LegacyDisable",
+        );
+        let mut slots = Vec::new();
+        let items = child_items(&key, &parent, "文件夹", false, 0, &mut slots).unwrap();
+        assert_eq!(items.len(), 2);
+        let upload = items.iter().find(|i| i.label == "上传到夸克网盘").unwrap();
+        assert!(!upload.enabled);
+        assert!(upload.auto_hide);
+        let tools = items.iter().find(|i| i.label == "Tools").unwrap();
+        assert_eq!(tools.sub_items[0].label, "检查");
+        assert_ne!(tools.id, tools.sub_items[0].id);
+        assert_eq!(slots.len(), 3);
+        assert!(slots.iter().any(|(_, slot)| matches!(&slot.scope, Scope::MenuVerb { path, .. } if path == r"Directory\shell\Fixture\shell\Tools\shell\Inspect")));
+        assert!(path.starts_with(r"Software\WinGlow\TransactionTests\"));
+        root.delete_subkey_all(&path).unwrap();
+    }
+    #[test]
+    fn nested_paths_and_shared_commands_remain_constrained() {
+        assert!(valid_verb_path("Directory\\shell\\Tools\\shell\\Upload"));
+        for path in [
+            "Directory\\shell\\Tools\\shell\\open",
+            "Directory\\shell\\Tools\\command",
+            "Directory\\shell\\Tools\\shell\\x\\CLSID",
+            "Directory\\shell\\a\\shell\\b\\shell\\c\\shell\\d\\shell\\e\\shell\\f",
+        ] {
+            assert!(!valid_verb_path(path), "{path}");
+        }
+        assert!(valid_command_name("vendor.Upload"));
+        assert!(!valid_command_name("Windows.open"));
+        assert!(!valid_command_name("evil\\command"));
+    }
     #[test]
     fn paths_cannot_escape_menu_or_disable_open() {
         assert!(valid_verb_path("Directory\\Background\\shell\\GitHere"));

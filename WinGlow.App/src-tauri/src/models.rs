@@ -70,7 +70,7 @@ pub struct ToggleState {
     pub enabled: bool,
     pub note: Option<String>,
 }
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MenuItem {
     pub id: String,
@@ -83,6 +83,7 @@ pub struct MenuItem {
     pub targets: Vec<String>,
     pub menu_level: String,
     pub children: Vec<String>,
+    pub sub_items: Vec<MenuItem>,
     pub visibility_note: Option<String>,
     pub icon_data_url: Option<String>,
     pub icon_source: Option<String>,

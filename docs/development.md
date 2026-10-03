@@ -79,3 +79,13 @@ taskbar.rs 使用固定 SHA-256 的官方 TranslucentTB 2026.2 zip，逐一释�
 menu_policy.rs 读取 command/CLSID InprocServer32 来源、文件版本 CompanyName 或已识别产品，保留系统路径、Microsoft、核心/安全入口与未知用途。版本厂商不是签名可信度验证；策略是可解释的确定性规则，不宣传 AI，也不为了达到固定 90% 而关闭未知项。批量写入是一笔可还原事务。autoHide 仅为当前扫描建议，详情折叠展示。
 
 本轮功能必须验证：核心失败、引擎激活失败、完成标记失败、回退失败，文件原字节与不存在状态恢复，以及“已优化/撤销/继续恢复”UI。Windows 原生 SPI SET、引擎启动/退出和真实应用后还原另做实机验证，浏览器预览不执行主机修改。
+
+## 3.2.1 菜单与默认方案
+
+默认选择为 harmonyos-sc-bold，既有显式应用方案仍回显。OptimizeCore 固定使用粗方案；IconOverrides 29、77 与字体、菜单、引擎配置同事务记录，撤销恢复原值/原类型/不存在状态。
+
+菜单扫描递归读取父项下 shell 子项及 SubCommands 指向的 CommandStore 子项；不加载第三方扩展。MenuVerb 白名单只允许既有根下最多五层 shell/verb，拒绝 command/CLSID 路径及基本操作。CommandStoreVerb 只允许单个受约束名称下 LegacyDisable；共享子项开关作用于所有引用它的菜单。恢复类别包含这两类，旧备份保持兼容。动态扩展不伪造子项；ExtendedSubCommandsKey 引用的外部类别暂未展开。
+
+精简使用一次无图标扫描，不对每项重新扫描；对启用的附加父项整组隐藏，保留父项时递归精简子项，按 Slot 去重。用户明确要求的项目优先于旧安全入口保留规则；仍保留基本操作及不能确认归属的项目。用户看到的数量不代表单次右键实际菜单数量。
+
+实现依据：[Microsoft 静态级联菜单说明](https://learn.microsoft.com/en-us/windows/win32/shell/creating-static-cascading-menus)。动态 IExplorerCommand/COM 子项与静态注册项是不同机制，静态扫描不能声称枚举完整实时菜单。

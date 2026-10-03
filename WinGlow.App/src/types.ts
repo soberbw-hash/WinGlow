@@ -16,7 +16,7 @@ export interface ToggleState { id: string; label: string; enabled: boolean; note
 export interface MenuItem {
   id: string; label: string; group: string; enabled: boolean; kind: string;
   rawLabel: string; autoHide: boolean; targets: string[]; menuLevel: "direct" | "cascade" | "extension";
-  children: string[]; visibilityNote: string | null; iconDataUrl: string | null; iconSource: string | null;
+  children: string[]; subItems: MenuItem[]; visibilityNote: string | null; iconDataUrl: string | null; iconSource: string | null;
 }
 export interface ShellState { items: MenuItem[]; tweaks: ToggleState[]; breezeEnabled: boolean; taskbarEnabled: boolean; taskbarSupported: boolean; optimizationActive: boolean; optimizationPending: boolean; pendingRecovery: boolean; }
 export interface RepairProgress { running: boolean; stage: string; logDir: string; }

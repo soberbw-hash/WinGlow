@@ -92,6 +92,35 @@ fn critical(name: &str) -> bool {
     .any(|x| n.contains(x))
 }
 fn confirmed_third_party(name: &str, source: &str) -> bool {
+    if ["设置为桌面背景", "显示设置", "个性化"]
+        .iter()
+        .any(|label| name.contains(label))
+    {
+        return false;
+    }
+    let explicit = format!("{} {}", name.to_lowercase(), source.to_lowercase());
+    if [
+        "defender",
+        "windows defender",
+        "baidu",
+        "百度网盘",
+        "quark",
+        "夸克",
+        "workbuddy",
+        "沃克巴迪",
+        "图片转",
+        "image to pdf",
+        "imagetopdf",
+        "pic2pdf",
+        "wps",
+        "adobe",
+        "foxit",
+    ]
+    .iter()
+    .any(|n| explicit.contains(n))
+    {
+        return true;
+    }
     if critical(name) || critical(source) {
         return false;
     }
@@ -162,6 +191,16 @@ fn confirmed_third_party(name: &str, source: &str) -> bool {
         "everything",
         "potplayer",
         "foxit",
+        "quark",
+        "workbuddy",
+        "腾讯",
+        "tencent",
+        "360",
+        "visual studio",
+        "upload",
+        "上传",
+        "convert",
+        "转换",
         "wps",
     ]
     .iter()
@@ -177,24 +216,67 @@ pub fn should_hide(name: &str, slot: &Slot, key: &RegKey, server: Option<&RegKey
             .and_then(|k| k.get_value::<String, _>("").ok()),
     }
     .unwrap_or_default();
-    confirmed_third_party(name, &source)
+    confirmed_third_party(&format!("{name} {}", slot.scope.path()), &source)
 }
 pub fn plan() -> Result<Vec<Entry>> {
-    Ok(menu::scan()?
-        .into_iter()
-        .filter(|(item, _)| item.enabled && item.auto_hide)
-        .map(|(_, slot)| Entry {
-            slot,
-            value: Some(registry::string("")),
-        })
-        .collect())
+    fn collect(
+        item: &crate::models::MenuItem,
+        slots: &std::collections::BTreeMap<String, Slot>,
+        entries: &mut std::collections::BTreeMap<Slot, Entry>,
+    ) {
+        if !item.enabled {
+            return;
+        }
+        if item.auto_hide {
+            if let Some(slot) = slots.get(&item.id) {
+                entries.insert(
+                    slot.clone(),
+                    Entry {
+                        slot: slot.clone(),
+                        value: Some(registry::string("")),
+                    },
+                );
+            }
+        } else {
+            for child in &item.sub_items {
+                collect(child, slots, entries);
+            }
+        }
+    }
+    let items = menu::scan_impl(false)?;
+    let slots = items
+        .iter()
+        .map(|(item, slot)| (item.id.clone(), slot.clone()))
+        .collect();
+    let mut entries = std::collections::BTreeMap::new();
+    for (item, _) in items.iter().filter(|(item, _)| item.kind != "子菜单") {
+        collect(item, &slots, &mut entries);
+    }
+    Ok(entries.into_values().collect())
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn cleanup_preserves_critical_and_unknown_entries() {
+    fn explicitly_requested_clutter_is_hidden_even_without_publisher_metadata() {
+        for label in [
+            "Microsoft Defender 扫描",
+            "上传到百度网盘",
+            "夸克网盘",
+            "用 WorkBuddy 打开",
+            "沃克巴迪",
+            "图片转 PDF",
+        ] {
+            assert!(confirmed_third_party(label, ""), "{label}");
+        }
         assert!(!confirmed_third_party(
+            "Open With",
+            "C:\\Windows\\system32\\shell32.dll"
+        ));
+    }
+    #[test]
+    fn cleanup_preserves_essential_and_unknown_entries() {
+        assert!(confirmed_third_party(
             "EPP",
             "C:\\Program Files\\Windows Defender\\shellext.dll"
         ));
