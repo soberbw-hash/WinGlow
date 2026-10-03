@@ -2,7 +2,7 @@
 
 让 Windows 更合心意。调整字体、右键菜单与桌面细节。
 
-3.1.1 本地测试版。三个分类都已接入操作；字体页只保留选择、前后比较与应用。公开发布以 [GitHub Releases](https://github.com/soberbw-hash/WinGlow/releases) 为准。
+3.1.2 本地测试版。三个分类都已接入操作；字体页只保留选择、前后比较与应用。公开发布以 [GitHub Releases](https://github.com/soberbw-hash/WinGlow/releases) 为准。
 
 官方图标使用用户提供的原图，来源与原文件见 [品牌资源](docs/branding/README.md)。原图与来源随安装版及便携版保存。
 
@@ -19,7 +19,7 @@
 
 ## 使用与还原
 
-Windows 10 / 11 x64，使用系统 WebView2。正常打开无需管理员权限，需要修改系统位置时才请求提权。应用后重新打开目标程序，字体、覆盖图标和 Breeze 的完整切换可能需要注销。程序不会结束用户应用、杀 Explorer 或自动注销、重启。
+Windows 10 / 11 x64，使用系统 WebView2。正常打开无需管理员权限，需要修改系统位置时才请求提权。字体应用、普通字体还原和撤销最近修改成功后，会自动重启当前桌面的 Windows 资源管理器，桌面和任务栏短暂消失，资源管理器窗口可能关闭，请先完成文件复制等操作。其他已打开的应用需重新打开；部分字体界面、覆盖图标和 Breeze 的完整切换仍可能需要注销。程序不会自动注销或重启电脑。
 
 Breeze 首次开启时从官方 release 下载固定版本 0.1.34，并验证 SHA-256。它作为单独、未修改的上游进程运行；安装包不内置其 EXE/DLL。关闭后移除本工具添加的登录启动设置、停止注入进程，注销后原菜单才完整恢复。原有第三方 Breeze 配置仍保留。
 
@@ -51,6 +51,7 @@ powershell -ExecutionPolicy Bypass -File scripts/Build-ModernPackages.ps1
 - [视频研究与字体边界](docs/font-research.md)
 - [右键菜单研究](docs/context-menu-research.md)
 - [WinGlow 改名验证记录](docs/verification-3.1.1.md)
+- [应用后自动刷新验证记录](docs/verification-3.1.2.md)
 - [字体授权与来源](字体授权说明.md)
 - [外部引擎声明](licenses/THIRD-PARTY.txt)
 

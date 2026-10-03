@@ -17,6 +17,7 @@ Rust stable，edition 2024，最低 1.88；Tauri 2.12.1 稳定版、React 19.3�
 - `worker.rs`：管理员 helper、跨进程互斥、结果回传与 Shift 急救。
 - `menu.rs` / `shell_engine.rs`：菜单枚举、开关与分类还原。
 - `desktop.rs`：通过 COM 修改桌面文字显示，记录实时状态，不重命名文件。
+- `explorer.rs`：字体应用、普通字体还原、撤销最近修改成功后重启当前桌面的资源管理器，并验证桌面重新出现。
 - `breeze.rs`：固定版本外部引擎下载校验、普通权限启动与关闭。
 - `repair.rs`：DISM / SFC 日志、失败报告与默认系统字体注册修复。
 - `legacy.rs`：选择性读取 v2 REG 备份，不执行 reg import。
@@ -33,6 +34,8 @@ WinGlow 改名保留四类兼容记录：旧用户数据目录、原应用 ident
 普通界面采用 asInvoker。字体应用/导入/恢复与 HKLM 菜单修改时启动同一 EXE 的管理员 helper。当前用户设置和桌面 COM 操作直接运行。Breeze 启用拒绝管理员进程。helper 只接受 UUID 请求编号，按固定用户数据目录读取结构化操作；字体文件仍需完整解析。多窗口修改由 Global 命名 mutex 串行化；保持旧 mutex 名称，避免旧版与 WinGlow 同时修改系统。
 
 资源先校验并准备到 `%PROGRAMDATA%\WinGlow\Fonts`，不会覆盖 `C:\Windows\Fonts`。内容哈希避免覆盖其它字体文件。资源准备失败不写注册表。
+
+资源管理器刷新在成功的注册表事务完成、管理员 helper 返回之后，由界面所在进程执行；修改失败、仅导入字体、系统扫描修复均不触发。只定位当前桌面 GetShellWindow 对应的进程，校验会话及 Windows explorer.exe 路径，不按名称结束全部 Explorer。先创建挂起的替代进程，再停止原进程、恢复替代进程，等待桌面重新出现；管理员启动时使用原 Explorer 的用户令牌创建替代进程。刷新失败保留已提交的修改与备份，单独报告任务管理器恢复办法，不伪装成字体事务失败或自动回滚。
 
 每次修改将所有受影响值的原类型、字节与“不存在”状态持久保存到 `%LOCALAPPDATA%\WindowsFontTuner\Backups\font-v3-*\snapshot.json`，然后写入、回读校验并创建 `committed` 标记。出错时恢复原值并验证，成功回退创建 `rolled-back`。没有提交或回退标记的快照在界面显示恢复入口，阻止继续叠加修改。
 

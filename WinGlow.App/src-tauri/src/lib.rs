@@ -1,5 +1,6 @@
 mod breeze;
 mod desktop;
+mod explorer;
 mod font_engine;
 mod legacy;
 mod menu;

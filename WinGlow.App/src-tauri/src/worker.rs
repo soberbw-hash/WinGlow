@@ -119,6 +119,14 @@ fn request_dir(nonce: &str) -> Result<std::path::PathBuf> {
 }
 
 pub fn run(operation: Operation) -> Result<ActionResult> {
+    let refresh = crate::explorer::needed(&operation);
+    crate::explorer::finish(run_inner(operation), refresh, || {
+        let _guard = lock()?;
+        crate::explorer::restart()
+    })
+}
+
+fn run_inner(operation: Operation) -> Result<ActionResult> {
     let needs_admin = match &operation {
         Operation::Toggle { .. } => false,
         Operation::Menu { id, .. } => crate::menu::needs_admin(id)?,
