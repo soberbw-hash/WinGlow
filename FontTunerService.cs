@@ -11,7 +11,7 @@ using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.ServiceProcess;
 
-namespace WindowsFontTuner
+namespace WinGlow
 {
     public sealed class FontTunerService
     {

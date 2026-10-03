@@ -1,11 +1,11 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-[assembly: AssemblyTitle("Windows全局字体替换器")]
+[assembly: AssemblyTitle("WinGlow")]
 [assembly: AssemblyDescription("用于备份、应用和恢复 Windows 全局字体替换预设的小工具。")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("Open Source")]
-[assembly: AssemblyProduct("Windows全局字体替换器")]
+[assembly: AssemblyProduct("WinGlow")]
 [assembly: AssemblyCopyright("Copyright (c) 2026")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]

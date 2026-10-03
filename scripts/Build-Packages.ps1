@@ -29,10 +29,10 @@ if (-not $SkipBuild) {
 
 $distDir = Join-Path $root 'dist'
 $artifactsDir = Join-Path $root 'artifacts'
-$zipStageDir = Join-Path $artifactsDir ("WindowsFontTuner-v$Version-win64")
-$zipPath = Join-Path $distDir ("WindowsFontTuner-v$Version-win64.zip")
+$zipStageDir = Join-Path $artifactsDir ("WinGlow-v$Version-win64")
+$zipPath = Join-Path $distDir ("WinGlow-v$Version-win64.zip")
 $installerWorkDir = Join-Path $artifactsDir ("installer-v$Version")
-$installerExePath = Join-Path $distDir ("WindowsFontTuner-Setup-v$Version.exe")
+$installerExePath = Join-Path $distDir ("WinGlow-Setup-v$Version.exe")
 
 if (Test-Path -LiteralPath $zipStageDir) { Remove-Item -LiteralPath $zipStageDir -Recurse -Force }
 if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
@@ -44,7 +44,7 @@ New-Item -ItemType Directory -Path $installerWorkDir -Force | Out-Null
 New-Item -ItemType Directory -Path $distDir -Force | Out-Null
 
 Copy-Item -Path (Join-Path $root 'bin\Release\*') -Destination $zipStageDir -Recurse -Force
-$pdbPath = Join-Path $zipStageDir 'WindowsFontTuner.pdb'
+$pdbPath = Join-Path $zipStageDir 'WinGlow.pdb'
 if (Test-Path -LiteralPath $pdbPath) {
     Remove-Item -LiteralPath $pdbPath -Force
 }
@@ -76,7 +76,7 @@ InstallPrompt=
 DisplayLicense=
 FinishMessage=
 TargetName=$targetName
-FriendlyName=Windows Global Font Replacer Setup
+FriendlyName=WinGlow Setup
 AppLaunched=powershell.exe -NoProfile -ExecutionPolicy Bypass -File Install-App.ps1
 PostInstallCmd=<None>
 AdminQuietInstCmd=
@@ -110,7 +110,7 @@ if (-not (Test-Path -LiteralPath $installerExePath)) {
     throw 'IExpress 安装包构建失败。'
 }
 
-Get-ChildItem -LiteralPath $distDir -Force | Where-Object { $_.Name -like ("~WindowsFontTuner-Setup-v$Version.*") } | Remove-Item -Force -ErrorAction SilentlyContinue
+Get-ChildItem -LiteralPath $distDir -Force | Where-Object { $_.Name -like ("~WinGlow-Setup-v$Version.*") } | Remove-Item -Force -ErrorAction SilentlyContinue
 
 [PSCustomObject]@{
     Version = $Version

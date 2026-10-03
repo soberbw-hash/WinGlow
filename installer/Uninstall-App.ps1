@@ -6,21 +6,21 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 
-$appDisplayName = 'Windows全局字体替换器'
+$appDisplayName = 'WinGlow'
 $installDir = $PSScriptRoot
-$installedExe = Join-Path $installDir 'WindowsFontTuner.exe'
+$installedExe = Join-Path $installDir 'WinGlow.exe'
 $desktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) ($appDisplayName + '.lnk')
 $startMenuDir = Join-Path ([Environment]::GetFolderPath('Programs')) $appDisplayName
-$registryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsGlobalFontReplacer'
+$registryPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WinGlowLegacy'
 
-$running = Get-Process -Name 'WindowsFontTuner' -ErrorAction SilentlyContinue
+$running = Get-Process -Name 'WinGlow' -ErrorAction SilentlyContinue
 if ($running) {
-    [System.Windows.Forms.MessageBox]::Show('请先关闭正在运行的 Windows全局字体替换器，然后再卸载。', $appDisplayName, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
+    [System.Windows.Forms.MessageBox]::Show('请先关闭正在运行的 WinGlow，然后再卸载。', $appDisplayName, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning) | Out-Null
     exit 1
 }
 
 if (-not $Quiet) {
-    $confirm = [System.Windows.Forms.MessageBox]::Show('确定要卸载 Windows全局字体替换器吗？', $appDisplayName, [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
+    $confirm = [System.Windows.Forms.MessageBox]::Show('确定要卸载 WinGlow吗？', $appDisplayName, [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
     if ($confirm -ne [System.Windows.Forms.DialogResult]::Yes) {
         exit 0
     }

@@ -9,7 +9,7 @@
 - 新增原生注册表测试仅在临时的 HKCU\Software\WindowsWeitiao\TransactionTests\UUID 下运行：还原 Unicode 字符串、DWORD 原类型及不存在状态；第二次写入故障后回退已写值。测试结束删除自己创建的测试键，不碰 Windows 字体或 Explorer 配置。
 - 额外检查损坏快照显式隔离并保留原文；桌面实时文字状态在持久 FFlags 缺失时仍能进入快照。
 - TypeScript/Vite、Tauri x64 NSIS 与便携包的结果见本记录末尾的打包结果。
-- Playwright 浏览器检查字体选择、三类导航、还原页；前后预览的假文件信息与冗余说明已删除。截图保存在 WindowsFontTuner2/output/playwright。
+- Playwright 浏览器检查字体选择、三类导航、还原页；前后预览的假文件信息与冗余说明已删除。截图保存在 WinGlow.App/output/playwright。
 
 ## 实机边界
 

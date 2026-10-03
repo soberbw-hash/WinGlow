@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace WindowsFontTuner
+namespace WinGlow
 {
     public sealed class FontPackage
     {

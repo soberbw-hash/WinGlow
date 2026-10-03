@@ -1,0 +1,22 @@
+{
+  "product": "WinGlow",
+  "source": "user-provided-original",
+  "originalFilename": "codex-clipboard-6259622c-3309-4989-908a-cd8d36d4ef24.png",
+  "master": "icon-master.png",
+  "sha256": "9655572d74366d4c0ff370650c45e2ff20d307d9a2c1c4e58e2d69a5f2dc4ac0",
+  "width": 1254,
+  "height": 1254,
+  "mode": "RGBA",
+  "transform": "unchanged master; size and format encoding only",
+  "icoSizes": [
+    16,
+    20,
+    24,
+    32,
+    40,
+    48,
+    64,
+    128,
+    256
+  ]
+}

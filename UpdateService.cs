@@ -4,16 +4,16 @@ using System.Net;
 using System.Text.RegularExpressions;
 using System.Web.Script.Serialization;
 
-namespace WindowsFontTuner
+namespace WinGlow
 {
     public sealed class UpdateService
     {
-        private const string LatestReleaseApi = "https://api.github.com/repos/soberbw-hash/WindowsFontTuner/releases/latest";
-        private const string VersionManifestRaw = "https://raw.githubusercontent.com/soberbw-hash/WindowsFontTuner/main/version.json";
-        private const string VersionManifestCdn = "https://cdn.jsdelivr.net/gh/soberbw-hash/WindowsFontTuner@main/version.json";
+        private const string LatestReleaseApi = "https://api.github.com/repos/soberbw-hash/WinGlow/releases/latest";
+        private const string VersionManifestRaw = "https://raw.githubusercontent.com/soberbw-hash/WinGlow/main/version.json";
+        private const string VersionManifestCdn = "https://cdn.jsdelivr.net/gh/soberbw-hash/WinGlow@main/version.json";
 
-        public const string RepositoryPage = "https://github.com/soberbw-hash/WindowsFontTuner";
-        public const string LatestReleasePage = "https://github.com/soberbw-hash/WindowsFontTuner/releases/latest";
+        public const string RepositoryPage = "https://github.com/soberbw-hash/WinGlow";
+        public const string LatestReleasePage = "https://github.com/soberbw-hash/WinGlow/releases/latest";
 
         public UpdateCheckResult CheckForUpdates(Version currentVersion)
         {
@@ -147,7 +147,7 @@ namespace WindowsFontTuner
         {
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
             request.Method = "GET";
-            request.UserAgent = "WindowsFontTuner";
+            request.UserAgent = "WinGlow";
             request.Timeout = 8000;
             request.ReadWriteTimeout = 8000;
             request.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;

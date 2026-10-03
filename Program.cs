@@ -1,7 +1,7 @@
 using System;
 using System.Windows.Forms;
 
-namespace WindowsFontTuner
+namespace WinGlow
 {
     internal static class Program
     {

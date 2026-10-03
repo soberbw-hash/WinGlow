@@ -22,7 +22,7 @@
 
 校验 release 0.1.34 的 windows-build.zip，仅提取 x64/releasedbg/breeze.exe 与 shell.dll。完整 SHA-256 与来源见 licenses/THIRD-PARTY.txt。许可证全文一并保留。安装包不附带这两个文件，首次由用户开启时从官方地址下载。使用普通用户权限执行 inject-consistent；以管理员打开本工具时，启用会明确拒绝。
 
-本工具仅写自己的 WindowsWeitiao-Breeze 登录启动值，不接管原有 breeze-shell 启动项。关闭时通过上游公开命名事件停止注入进程并还原自启值。已经载入 Explorer 的 DLL 不能因停止进程而立即卸载，因此需要注销；本工具不会杀 Explorer 或自动注销。关闭后保留下载缓存与上游配置，避免删除第三方仍在使用的文件。
+本工具仅写自己的 WinGlow-Breeze 登录启动值，不接管原有 breeze-shell 启动项。关闭时通过上游公开命名事件停止注入进程并还原自启值。已经载入 Explorer 的 DLL 不能因停止进程而立即卸载，因此需要注销；本工具不会杀 Explorer 或自动注销。关闭后保留下载缓存与上游配置，避免删除第三方仍在使用的文件。
 
 上游启动成功不等于注入所有 Explorer 窗口成功。提示明确要求到资源管理器查看效果，不能将进程存活作为菜单美化成功的实机证据。
 

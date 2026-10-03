@@ -1,6 +1,6 @@
-# Windows 微调开发约定
+# WinGlow开发约定
 
-主线为 WindowsFontTuner2，保留路径与应用 identifier，以兼容旧安装信息。根目录 C#/WinForms 工程为历史实现，不用于 3.x 打包。
+主线为 WinGlow.App，Rust crate 为 winglow，程序为 WinGlow.exe。保留旧应用 identifier 以支持已安装版本升级；它是兼容标识，不是显示名称。根目录 C#/WinForms 工程为历史实现，不用于 3.x 打包。
 
 ## 技术底座
 
@@ -18,13 +18,17 @@ Rust stable，edition 2024，最低 1.88；Tauri 2.12.1 稳定版、React 19.3�
 - `legacy.rs`：选择性读取 v2 REG 备份，不执行 reg import。
 - `preset_data.rs`：唯一的生产字体选择与字重映射表。浏览器预览的三项模拟数据必须与此一致。
 
+原图、来源 JSON 与派生图标见 docs/branding，脚本 scripts/generate-brand-assets.py 统一生成。原图和来源随两种包保存。
+
+WinGlow 改名保留四类兼容记录：旧用户数据目录、原应用 identifier、与旧版共享的互斥名称、旧 WindowsWeitiao-Breeze 注册值白名单。新启动项使用 WinGlow-Breeze，检测和关闭支持旧项；历史发行记录和已发布资源文件名保留原名，不能将旧链接改成不存在的资源。
+
 浏览器模式只能查看界面，应用按钮禁用，不模拟 Windows 写入成功。
 
 ## 应用与恢复
 
-普通界面采用 asInvoker。字体应用/导入/恢复与 HKLM 菜单修改时启动同一 EXE 的管理员 helper。当前用户设置和桌面 COM 操作直接运行。Breeze 启用拒绝管理员进程。helper 只接受 UUID 请求编号，按固定用户数据目录读取结构化操作；字体文件仍需完整解析。多窗口修改由 Global 命名 mutex 串行化。
+普通界面采用 asInvoker。字体应用/导入/恢复与 HKLM 菜单修改时启动同一 EXE 的管理员 helper。当前用户设置和桌面 COM 操作直接运行。Breeze 启用拒绝管理员进程。helper 只接受 UUID 请求编号，按固定用户数据目录读取结构化操作；字体文件仍需完整解析。多窗口修改由 Global 命名 mutex 串行化；保持旧 mutex 名称，避免旧版与 WinGlow 同时修改系统。
 
-资源先校验并准备到 `%PROGRAMDATA%\WindowsWeitiao\Fonts`，不会覆盖 `C:\Windows\Fonts`。内容哈希避免覆盖其它字体文件。资源准备失败不写注册表。
+资源先校验并准备到 `%PROGRAMDATA%\WinGlow\Fonts`，不会覆盖 `C:\Windows\Fonts`。内容哈希避免覆盖其它字体文件。资源准备失败不写注册表。
 
 每次修改将所有受影响值的原类型、字节与“不存在”状态持久保存到 `%LOCALAPPDATA%\WindowsFontTuner\Backups\font-v3-*\snapshot.json`，然后写入、回读校验并创建 `committed` 标记。出错时恢复原值并验证，成功回退创建 `rolled-back`。没有提交或回退标记的快照在界面显示恢复入口，阻止继续叠加修改。
 
@@ -35,7 +39,7 @@ Rust stable，edition 2024，最低 1.88；Tauri 2.12.1 稳定版、React 19.3�
 ## 验证与打包
 
 ```powershell
-cd WindowsFontTuner2
+cd WinGlow.App
 npm ci
 npm run build
 cargo fmt --manifest-path src-tauri/Cargo.toml --check

@@ -12,10 +12,10 @@ $ErrorActionPreference = 'Stop'
 
 Add-Type -AssemblyName System.Windows.Forms
 
-$appDisplayName = 'Windows全局字体替换器'
+$appDisplayName = 'WinGlow'
 $appPublisher = 'soberbw-hash'
-$appExeName = 'WindowsFontTuner.exe'
-$installFolderName = 'WindowsGlobalFontReplacer'
+$appExeName = 'WinGlow.exe'
+$installFolderName = 'WinGlowLegacy'
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $payloadZip = Join-Path $scriptRoot 'AppPackage.zip'
 $uninstallScriptSource = Join-Path $scriptRoot 'Uninstall-App.ps1'
@@ -34,7 +34,7 @@ $desktopShortcutPath = Join-Path ([Environment]::GetFolderPath('Desktop')) ($app
 $startMenuShortcutPath = Join-Path $startMenuDir ($appDisplayName + '.lnk')
 $uninstallShortcutPath = Join-Path $startMenuDir ('卸载 ' + $appDisplayName + '.lnk')
 $uninstallCmdPath = Join-Path $InstallDir ('卸载 ' + $appDisplayName + '.cmd')
-$registryKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WindowsGlobalFontReplacer'
+$registryKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\WinGlowLegacy'
 
 function New-AppShortcut {
     param(

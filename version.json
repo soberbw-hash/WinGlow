@@ -1,9 +1,9 @@
 {
   "version": "0.5.6",
   "tag": "v0.5.6",
-  "name": "Windows全局字体替换器 v0.5.6",
-  "releaseUrl": "https://github.com/soberbw-hash/WindowsFontTuner/releases/tag/v0.5.6",
-  "downloadUrl": "https://github.com/soberbw-hash/WindowsFontTuner/releases/download/v0.5.6/WindowsFontTuner-Setup-v0.5.6.exe",
+  "name": "WinGlow v0.5.6",
+  "releaseUrl": "https://github.com/soberbw-hash/WinGlow/releases/tag/v0.5.6",
+  "downloadUrl": "https://github.com/soberbw-hash/WinGlow/releases/download/v0.5.6/WindowsFontTuner-Setup-v0.5.6.exe",
   "publishedAt": "2026-04-06T02:20:00Z",
   "notes": "继续修正低宽度窗口下的文字拥挤和右侧溢出，进一步提前单列切换，扩大映射预览区域，并把应用界面字体调整为更适合中文界面的 HarmonyOS Sans SC。"
 }

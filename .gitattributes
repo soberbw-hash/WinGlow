@@ -16,7 +16,7 @@
 /ModernControls.cs linguist-vendored
 /Program.cs linguist-vendored
 /UpdateService.cs linguist-vendored
-/WindowsFontTuner.csproj linguist-vendored
+/WinGlow.Legacy.csproj linguist-vendored
 bin/** linguist-vendored
 obj/** linguist-vendored
 artifacts/** linguist-vendored

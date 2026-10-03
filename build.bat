@@ -6,4 +6,4 @@ if not exist "%MSBUILD%" (
   echo MSBuild.exe was not found.
   exit /b 1
 )
-"%MSBUILD%" "%~dp0WindowsFontTuner.csproj" /t:Rebuild /p:Configuration=Release /m
+"%MSBUILD%" "%~dp0WinGlow.Legacy.csproj" /t:Rebuild /p:Configuration=Release /m

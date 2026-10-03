@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-namespace WindowsFontTuner
+namespace WinGlow
 {
     public sealed class AppShellForm : Form
     {
@@ -90,7 +90,7 @@ namespace WindowsFontTuner
             DoubleBuffered = true;
             AutoScaleMode = AutoScaleMode.Dpi;
             UiTypography.Initialize(AppDomain.CurrentDomain.BaseDirectory);
-            Text = "Windows全局字体替换器";
+            Text = "WinGlow";
             Width = 1420;
             Height = 920;
             MinimumSize = new Size(1100, 760);
@@ -221,21 +221,11 @@ namespace WindowsFontTuner
             mark.Location = new Point(0, 8);
             mark.Paint += delegate(object sender, PaintEventArgs e)
             {
-                Rectangle bounds = new Rectangle(0, 0, mark.Width - 1, mark.Height - 1);
-                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-                using (LinearGradientBrush brush = new LinearGradientBrush(bounds, UiPalette.Accent, Color.FromArgb(82, 136, 255), 45f))
-                using (GraphicsPath path = UiGeometry.CreateRoundedRectangle(bounds, 16))
+                using (System.IO.Stream source = typeof(AppShellForm).Assembly.GetManifestResourceStream("WinGlow.IconMaster.png"))
+                using (Image image = Image.FromStream(source))
                 {
-                    e.Graphics.FillPath(brush, path);
+                    e.Graphics.DrawImage(image, new Rectangle(0, 0, mark.Width, mark.Height));
                 }
-
-                TextRenderer.DrawText(
-                    e.Graphics,
-                    "Aa",
-                    new Font(Font.FontFamily, 16f, FontStyle.Bold),
-                    bounds,
-                    Color.White,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
             };
             host.Controls.Add(mark);
 
@@ -247,7 +237,7 @@ namespace WindowsFontTuner
             title.Location = new Point(0, 70);
             title.Size = new Size(176, 64);
             title.UseCompatibleTextRendering = true;
-            title.Text = "Windows全局字体替换器";
+            title.Text = "WinGlow";
             host.Controls.Add(title);
 
             Label sub = new Label();

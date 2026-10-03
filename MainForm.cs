@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
-namespace WindowsFontTuner
+namespace WinGlow
 {
     public sealed class MainForm : Form
     {
@@ -48,7 +48,7 @@ namespace WindowsFontTuner
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.UserPaint, true);
             DoubleBuffered = true;
             AutoScaleMode = AutoScaleMode.Dpi;
-            Text = "Windows全局字体替换器";
+            Text = "WinGlow";
             Width = 1180;
             Height = 920;
             MinimumSize = new Size(1040, 760);
