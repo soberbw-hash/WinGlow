@@ -77,7 +77,8 @@ h1 { font-size: 24px; line-height: 1.35; font-weight: 600; margin-bottom: 24px; 
 .setting-row h2 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .setting-row p,.settings-hint { font-size: 13px; color: var(--color-slate-600); line-height: 1.7; }
 .settings-hint { margin-top: 24px; }
-.about { display: flex; gap: 12px; margin-top: 44px; }
+.about { display: flex; align-items: flex-start; gap: 12px; margin-top: 44px; }
+.about img { width: 32px; height: 32px; flex-shrink: 0; }
 .about strong { font-size: 14px; font-weight: 600; }
 .about p { color: var(--color-slate-600); font-size: 12px; margin-top: 8px; }
 .about span { display: block; color: var(--color-slate-500); font-size: 11px; margin-top: 12px; }
