@@ -12,3 +12,12 @@
 - NSIS 签名安装包生成成功，本地 Ed25519/预哈希签名和受签名版本注释验证通过，更新清单为无 BOM UTF-8。
 
 发布后的公开清单、下载与签名诊断记录在用户数据目录 update-verification.json。该诊断只下载和验证，不安装。更新到一个后续版本的完整实机升级需要后续递增版本才可验收，不能由浏览器模拟替代。
+
+## 发布后验证
+
+- GitHub v1.0.0 为 latest，5 个附件齐全；安装包、签名、便携包、清单及哈希文件的公开 SHA-256 与本地一致。
+- 已安装到当前用户 LocalAppData/WinGlow，EXE ProductVersion 为 1.0.0，安装后正常启动；发布完成后重新打开。
+- 安装版执行 --verify-updater，从公开 latest.json 下载完整 125506540 字节安装包，Tauri 签名验证通过，报告 version=1.0.0、signatureVerified=true、installed=false。
+- 清理 21 个旧 GitHub Release，保留 Git 标签和源码历史。
+- 12 套旧本地构建包移入回收站，保留新版和用户备份。3.1.3 的便携目录被其他进程占用，内容已清空，剩空目录未强制关闭占用进程。
+- 更新签名私钥及恢复说明位于受权限保护的用户桌面“WinGlow 发布密钥”，没有提交仓库。
