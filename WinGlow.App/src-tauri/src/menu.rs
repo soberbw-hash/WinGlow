@@ -9,16 +9,32 @@ use sha2::{Digest, Sha256};
 use windows::{Win32::UI::Shell::SHLoadIndirectString, core::PCWSTR};
 use winreg::{
     RegKey,
-    enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY},
+    enums::{HKEY_CLASSES_ROOT, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_WOW64_64KEY},
 };
 
 const ROOTS: &[(&str, &str)] = &[
-    ("*", "文件"),
+    ("*", "所有文件"),
     ("AllFilesystemObjects", "文件与文件夹"),
     ("Directory", "文件夹"),
     ("Directory\\Background", "文件夹空白处"),
     ("Drive", "磁盘"),
     ("DesktopBackground", "桌面"),
+    ("exefile", "EXE 程序"),
+    ("lnkfile", "快捷方式"),
+    ("txtfile", "文本"),
+    ("SystemFileAssociations\\.txt", "文本"),
+    ("SystemFileAssociations\\image", "图片"),
+    ("SystemFileAssociations\\.jpg", "图片"),
+    ("SystemFileAssociations\\.jpeg", "图片"),
+    ("SystemFileAssociations\\.png", "图片"),
+    ("jpegfile", "图片"),
+    ("pngfile", "图片"),
+    ("SystemFileAssociations\\.pdf", "PDF"),
+    ("CompressedFolder", "压缩文件"),
+    ("SystemFileAssociations\\.zip", "压缩文件"),
+    ("SystemFileAssociations\\.7z", "压缩文件"),
+    ("SystemFileAssociations\\audio", "音视频"),
+    ("SystemFileAssociations\\video", "音视频"),
 ];
 const PROTECTED: &[&str] = &[
     "open",
@@ -29,6 +45,7 @@ const PROTECTED: &[&str] = &[
     "delete",
     "rename",
     "properties",
+    "printto",
 ];
 pub fn valid_verb_path(path: &str) -> bool {
     ROOTS.iter().any(|(root, _)| {
@@ -51,7 +68,160 @@ fn readable(raw: String) -> String {
             );
         }
     }
-    raw
+    raw.trim().to_string()
+}
+fn friendly(raw: &str) -> String {
+    let mut clean = raw.trim().to_string();
+    // Windows accelerator labels are useful in the real menu, not in this list.
+    for marker in ["(&", "（&"] {
+        while let Some(start) = clean.find(marker) {
+            let rest = &clean[start..];
+            let Some(end) = rest.find([')', '）']) else {
+                break;
+            };
+            clean.replace_range(
+                start..start + end + rest[end..].chars().next().unwrap().len_utf8(),
+                "",
+            );
+        }
+    }
+    clean = clean.replace('&', "");
+    match clean.to_ascii_lowercase().as_str() {
+        "copy as path menu" | "copyaspath" => "复制文件路径".into(),
+        "doubao context menu" => "豆包".into(),
+        "360zip file type" => "360 压缩".into(),
+        "encryption context menu" => "加密 / 解密".into(),
+        "sharing" | "sharing handler" => "共享".into(),
+        "pinto start screen" | "pintostartscreen" => "固定到开始菜单".into(),
+        "sendto" | "microsoft sendto service" => "发送到".into(),
+        "new menu handler" => "新建".into(),
+        "slideshowcontextmenu" => "幻灯片菜单".into(),
+        "enhanced storage context menu handler class" => "增强存储设备菜单".into(),
+        "nvidia cpl context menu extension" => "NVIDIA 控制面板".into(),
+        "find" => "搜索".into(),
+        "print" => "打印".into(),
+        "baidunetdisk" => "百度网盘".into(),
+        "open git bash here" => "在此打开 Git Bash".into(),
+        "open git gui here" => "在此打开 Git GUI".into(),
+        ".spotlightlearnmore" => "了解此图片".into(),
+        ".spotlightnextimage" => "切换聚焦图片".into(),
+        "editstickers" => "编辑桌面贴纸".into(),
+        "open with" | "openwith" => "打开方式".into(),
+        _ => clean,
+    }
+}
+fn extension_label(raw: &str, server: Option<&RegKey>) -> String {
+    if uuid::Uuid::parse_str(raw.trim_matches(['{', '}'])).is_ok() {
+        return "未命名程序扩展".into();
+    }
+    let path = server
+        .and_then(|key| key.get_value::<String, _>("").ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match (raw, path.rsplit('\\').next().unwrap_or("")) {
+        ("DesktopContext Class", "nvui.dll") => "NVIDIA 控制面板".into(),
+        ("CompatContextMenu Class", "acppage.dll") => "程序兼容性".into(),
+        ("FileSyncEx", "filesyncshell64.dll") => "OneDrive".into(),
+        ("EPP", "shellext.dll") if path.contains("\\windows defender\\") => {
+            "Microsoft Defender 扫描".into()
+        }
+        _ => friendly(raw),
+    }
+}
+fn targets(group: &str) -> Vec<String> {
+    match group {
+        "所有文件" => [
+            "所有文件",
+            "EXE 程序",
+            "图片",
+            "文本",
+            "PDF",
+            "压缩文件",
+            "音视频",
+            "快捷方式",
+        ]
+        .iter()
+        .map(|s| (*s).into())
+        .collect(),
+        "文件与文件夹" => {
+            let mut values = targets("所有文件");
+            values.push("文件夹".into());
+            values
+        }
+        "文件夹空白处" => vec!["桌面".into(), "文件夹空白处".into()],
+        _ => vec![group.into()],
+    }
+}
+fn context_group(class: &str, group: &str) -> String {
+    match class {
+        "Directory\\Background" => "桌面 / 文件夹空白处",
+        "SystemFileAssociations\\.jpg" | "jpegfile" => "JPG 图片",
+        "SystemFileAssociations\\.jpeg" => "JPEG 图片",
+        "SystemFileAssociations\\.png" | "pngfile" => "PNG 图片",
+        "SystemFileAssociations\\.zip" | "CompressedFolder" => "ZIP 压缩文件",
+        "SystemFileAssociations\\.7z" => "7Z 压缩文件",
+        "SystemFileAssociations\\audio" => "音频文件",
+        "SystemFileAssociations\\video" => "视频文件",
+        _ => group,
+    }
+    .into()
+}
+fn children(key: &RegKey) -> Vec<String> {
+    let mut labels = Vec::new();
+    if let Ok(shell) = key.open_subkey_with_flags("shell", KEY_READ | KEY_WOW64_64KEY) {
+        for name in shell.enum_keys().flatten().take(24) {
+            if let Ok(child) = shell.open_subkey_with_flags(&name, KEY_READ | KEY_WOW64_64KEY) {
+                labels.push(friendly(&readable(
+                    child
+                        .get_value::<String, _>("MUIVerb")
+                        .or_else(|_| child.get_value(""))
+                        .unwrap_or(name),
+                )));
+            }
+        }
+    }
+    if let Ok(commands) = key.get_value::<String, _>("SubCommands") {
+        let root = RegKey::predef(HKEY_LOCAL_MACHINE);
+        for command in commands.split(';').filter(|s| !s.is_empty()).take(24) {
+            if command.contains(['\\', '/', '\0']) {
+                continue;
+            }
+            if let Ok(child) = root.open_subkey_with_flags(format!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\CommandStore\\shell\\{command}"), KEY_READ | KEY_WOW64_64KEY) {
+                let label = friendly(&readable(child.get_value::<String, _>("MUIVerb").or_else(|_| child.get_value("")).unwrap_or(command.into())));
+                if !labels.contains(&label) { labels.push(label); }
+            }
+        }
+    }
+    labels
+}
+fn item_icon(
+    key: &RegKey,
+    server: Option<&RegKey>,
+    icons: bool,
+) -> (Option<String>, Option<String>) {
+    if !icons {
+        return (None, None);
+    }
+    for value in ["Icon", "DefaultIcon"] {
+        if let Ok(raw) = key.get_value::<String, _>(value)
+            && let Some(icon) = crate::menu_icon::extract(&raw)
+        {
+            return (Some(icon), Some("菜单图标".into()));
+        }
+    }
+    if let Ok(default_icon) = key.open_subkey_with_flags("DefaultIcon", KEY_READ | KEY_WOW64_64KEY)
+        && let Ok(raw) = default_icon.get_value::<String, _>("")
+        && let Some(icon) = crate::menu_icon::extract(&raw)
+    {
+        return (Some(icon), Some("程序图标".into()));
+    }
+    if let Some(server) = server
+        && let Ok(raw) = server.get_value::<String, _>("")
+        && let Some(icon) = crate::menu_icon::extract(&raw)
+    {
+        return (Some(icon), Some("程序图标".into()));
+    }
+    (None, None)
 }
 fn id(scope: &Scope, name: &str) -> String {
     format!(
@@ -60,7 +230,10 @@ fn id(scope: &Scope, name: &str) -> String {
     )
 }
 pub fn scan() -> Result<Vec<(MenuItem, registry::Slot)>> {
-    let mut items = Vec::new();
+    scan_impl(true)
+}
+fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> {
+    let mut items: Vec<(MenuItem, registry::Slot)> = Vec::new();
     for machine in [false, true] {
         let root = RegKey::predef(if machine {
             HKEY_LOCAL_MACHINE
@@ -84,7 +257,7 @@ pub fn scan() -> Result<Vec<(MenuItem, registry::Slot)>> {
                         continue;
                     }
                     let key = verbs.open_subkey_with_flags(&name, KEY_READ | KEY_WOW64_64KEY)?;
-                    // Cascading and programmatic-only verbs need a different policy.
+                    // Do not expose programmatic-only verbs. Cascades are switched as a group.
                     if key.get_raw_value("ProgrammaticAccessOnly").is_ok() {
                         continue;
                     }
@@ -96,11 +269,29 @@ pub fn scan() -> Result<Vec<(MenuItem, registry::Slot)>> {
                             .unwrap_or(name.clone()),
                     );
                     let enabled = crate::registry::WindowsRegistry.read(&slot)?.is_none();
+                    let children = children(&key);
+                    let cascading = !children.is_empty()
+                        || key.get_raw_value("SubCommands").is_ok()
+                        || key.get_raw_value("ExtendedSubCommandsKey").is_ok();
+                    let (icon_data_url, icon_source) = item_icon(&key, None, icons);
                     items.push((
                         MenuItem {
                             id: id(&slot.scope, &name),
-                            label,
-                            group: (*group).into(),
+                            label: friendly(&label),
+                            raw_label: label,
+                            targets: targets(group),
+                            menu_level: if cascading { "cascade" } else { "direct" }.into(),
+                            children,
+                            visibility_note: if key.get_raw_value("Extended").is_ok() {
+                                Some("按住 Shift 再右键才显示。".into())
+                            } else if key.get_raw_value("AppliesTo").is_ok() {
+                                Some("只在符合文件条件时显示。".into())
+                            } else {
+                                None
+                            },
+                            icon_data_url,
+                            icon_source,
+                            group: context_group(class, group),
                             enabled,
                             kind: if machine {
                                 "所有用户"
@@ -131,17 +322,33 @@ pub fn scan() -> Result<Vec<(MenuItem, registry::Slot)>> {
                     }
                     let slot = registry::slot(Scope::BlockedExtensions, guid.clone());
                     // One CLSID may appear in several categories; expose a single global switch.
-                    if items.iter().any(|(_, s)| s == &slot) {
+                    if let Some((item, _)) = items.iter_mut().find(|(_, s)| s == &slot) {
+                        for target in targets(group) {
+                            if !item.targets.contains(&target) {
+                                item.targets.push(target);
+                            }
+                        }
                         continue;
                     }
-                    let clsid = root
+                    // CLSID metadata is merged for the current user; the registration
+                    // itself may live in a different hive from its handler reference.
+                    let clsid = RegKey::predef(HKEY_CLASSES_ROOT)
                         .open_subkey_with_flags(
-                            format!("Software\\Classes\\CLSID\\{guid}"),
+                            format!("CLSID\\{guid}"),
                             KEY_READ | KEY_WOW64_64KEY,
                         )
                         .ok();
+                    let server = clsid.as_ref().and_then(|key| {
+                        key.open_subkey_with_flags("InprocServer32", KEY_READ | KEY_WOW64_64KEY)
+                            .ok()
+                    });
+                    let (icon_data_url, icon_source) = clsid
+                        .as_ref()
+                        .map(|key| item_icon(key, server.as_ref(), icons))
+                        .unwrap_or((None, None));
                     let label = readable(
                         clsid
+                            .as_ref()
                             .and_then(|k| k.get_value::<String, _>("").ok())
                             .filter(|s| !s.is_empty())
                             .unwrap_or(name),
@@ -153,7 +360,14 @@ pub fn scan() -> Result<Vec<(MenuItem, registry::Slot)>> {
                     items.push((
                         MenuItem {
                             id: id(&slot.scope, &guid),
-                            label,
+                            label: extension_label(&label, server.as_ref()),
+                            raw_label: label,
+                            targets: targets(group),
+                            menu_level: "extension".into(),
+                            children: vec![],
+                            visibility_note: Some("显示哪些项目由程序和所选文件决定。".into()),
+                            icon_data_url,
+                            icon_source,
                             group: "扩展菜单".into(),
                             enabled,
                             kind: "当前用户".into(),
@@ -170,7 +384,10 @@ pub fn scan() -> Result<Vec<(MenuItem, registry::Slot)>> {
     Ok(items)
 }
 pub fn resolve(id: &str, enabled: bool) -> Result<Vec<Entry>> {
-    let Some((_, slot)) = scan()?.into_iter().find(|(item, _)| item.id == id) else {
+    let Some((_, slot)) = scan_impl(false)?
+        .into_iter()
+        .find(|(item, _)| item.id == id)
+    else {
         bail!("菜单项已变化，请刷新后再试。");
     };
     let mut entries = vec![Entry {
@@ -209,5 +426,19 @@ mod tests {
         assert!(!valid_verb_path("Directory\\shell\\open"));
         assert!(!valid_verb_path("*\\shell\\a\\command"));
         assert!(!valid_verb_path("CLSID\\shell\\x"));
+        assert!(valid_verb_path("exefile\\shell\\scan"));
+        assert!(!valid_verb_path("exefile\\shell\\runas"));
+        assert!(valid_verb_path("SystemFileAssociations\\.png\\shell\\edit"));
+    }
+    #[test]
+    fn file_filters_include_inherited_menu_items() {
+        assert!(targets("所有文件").contains(&"EXE 程序".into()));
+        assert!(targets("文件与文件夹").contains(&"文件夹".into()));
+        assert!(!targets("文件夹空白处").contains(&"文件夹".into()));
+        assert!(targets("文件夹空白处").contains(&"桌面".into()));
+        assert_eq!(friendly("Copy as Path Menu"), "复制文件路径");
+        assert_eq!(friendly("Unknown extension"), "Unknown extension");
+        assert_eq!(friendly("设置为桌面背景(&B)"), "设置为桌面背景");
+        assert_eq!(friendly("打开（&O）"), "打开");
     }
 }

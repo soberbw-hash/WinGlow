@@ -69,6 +69,13 @@ pub struct MenuItem {
     pub group: String,
     pub enabled: bool,
     pub kind: String,
+    pub raw_label: String,
+    pub targets: Vec<String>,
+    pub menu_level: String,
+    pub children: Vec<String>,
+    pub visibility_note: Option<String>,
+    pub icon_data_url: Option<String>,
+    pub icon_source: Option<String>,
 }
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

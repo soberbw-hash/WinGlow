@@ -3,7 +3,8 @@ import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import { Type, MousePointer2, PanelsTopLeft, RotateCcw, Minus, Square, X, Check, RefreshCw } from "lucide-react";
+import { Type, MousePointer2, PanelsTopLeft, RotateCcw, Minus, Square, X, Check } from "lucide-react";
+import { MenuManager } from "./components/MenuManager";
 import appIcon from "./assets/app-icon.png";
 import { cn } from "./lib/cn";
 import { loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setMenuItem, restoreCategory, repairSystem, repairProgress } from "./lib/tauri";
@@ -46,7 +47,6 @@ export default function App() {
   const [repairing, setRepairing] = useState(false);
   const [repairStage, setRepairStage] = useState("");
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
-  const [search, setSearch] = useState("");
   const desktop = isTauri();
   async function reload(initial = false) {
     setLoading(true);
@@ -96,7 +96,6 @@ export default function App() {
     if (desktop && !(busy && action === "close")) await getCurrentWindow()[action]();
   }
   function navigate(next: PageId) { setPage(next); setNotice(null); }
-  const items = shell?.items.filter(item => (item.label + item.group).toLocaleLowerCase().includes(search.toLocaleLowerCase())) ?? [];
   return <div className="app-shell">
     <header className="titlebar" data-tauri-drag-region><span className="titlebar-name" data-tauri-drag-region>WinGlow</span><div className="window-controls">
       <button aria-label="最小化" onClick={() => void windowAction("minimize")}><Minus size={15} /></button><button aria-label="最大化或还原" onClick={() => void windowAction("toggleMaximize")}><Square size={12} /></button><button aria-label="关闭" className="close-window" disabled={busy} onClick={() => void windowAction("close")}><X size={17} /></button>
@@ -104,16 +103,15 @@ export default function App() {
     <div className="workspace"><aside className="sidebar"><div className="brand"><img src={appIcon} alt="" width={40} height={40} /><span>WinGlow</span></div>
       <nav aria-label="功能">{pages.map(({ id, label, icon: Icon }) => <button key={id} className={cn("nav-item", page === id && "active")} aria-current={page === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={18} /><span>{label}</span></button>)}</nav>
       <div className="sidebar-bottom"><button className={cn("nav-item", page === "settings" && "active")} aria-current={page === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><RotateCcw size={18} /><span>还原</span></button></div>
-    </aside><main className="main-content" aria-busy={loading || busy}>
+    </aside><main className={cn("main-content", page === "menu" && "menu-page")} aria-busy={loading || busy}>
       {page === "fonts" ? <><h1>字体</h1>
         {loading && !bootstrap ? <div className="empty-state"><p>正在读取…</p></div> : !bootstrap ? <div className="empty-state"><button className="button secondary" onClick={() => void reload(true)}>重试</button></div> : <>
           <fieldset className="font-picker" disabled={busy || loading}><legend className="sr-only">选择字体</legend><div className="font-options">{bootstrap.presets.map(preset => <label key={preset.id} className={cn("font-option", selectedId === preset.id && "selected")}><input type="radio" name="font" value={preset.id} checked={selectedId === preset.id} onChange={() => { setSelectedId(preset.id); setNotice(null); }} /><span>{preset.label}</span><Check size={16} aria-hidden="true" className="option-check" /></label>)}</div></fieldset>
           <div className="comparison"><section className="preview-panel" aria-label="更换前"><div className="preview-caption"><h2>更换前</h2></div><FontSample family={bootstrap.currentPreviewFamily} /></section><section className="preview-panel" aria-label="更换后"><div className="preview-caption"><h2>更换后</h2></div><FontSample family={selected?.previewFamily ?? '"Microsoft YaHei UI", sans-serif'} /></section></div>
           <div className="apply-row"><button className="button primary apply-button" title="应用成功后自动重启资源管理器，桌面和任务栏会短暂消失，文件窗口可能关闭。请先完成文件复制。" disabled={blocked || !selected || bootstrap.activePresetId === selectedId} onClick={() => void applySelected()}>{busy ? "处理中…" : bootstrap.activePresetId === selectedId ? <><Check size={16} />已应用</> : "应用"}</button></div>
         </>}</> : page === "menu" ? <>
-          <h1>右键菜单</h1><div className="setting-row breeze-row"><div><h2>Breeze 美化</h2><p>首次开启需下载，关闭后注销恢复原菜单。</p></div><Switch label="Breeze 美化" checked={shell?.breezeEnabled ?? false} disabled={blocked || !shell} onChange={value => void mutate(() => setTweak("breeze", value))} /></div>
-          <div className="menu-toolbar"><input type="search" aria-label="查找菜单项" placeholder="查找菜单项" value={search} onChange={e => setSearch(e.target.value)} /><button className="icon-button" aria-label="刷新菜单项" disabled={busy || loading} onClick={() => void reload()}><RefreshCw size={17} /></button></div>
-          {!shell && loading ? <p className="empty-state">正在读取…</p> : !shell ? <button className="button secondary" onClick={() => void reload()}>重试</button> : items.length === 0 ? <p className="empty-state">{search ? "没有匹配的菜单项" : "没有可管理的菜单项"}</p> : <div className="settings-list">{items.map(item => <div className="setting-row" key={item.id}><div><h2>{item.label}</h2><p>{item.group} · {item.kind}</p></div><Switch label={item.label} checked={item.enabled} disabled={blocked} onChange={value => void mutate(() => setMenuItem(item.id, value))} /></div>)}</div>}
+          <div className="menu-page-heading"><h1>右键菜单</h1><div className="breeze-compact" title="首次开启需下载，关闭后注销恢复原菜单。"><span>Breeze 美化</span><Switch label="Breeze 美化" checked={shell?.breezeEnabled ?? false} disabled={blocked || !shell} onChange={value => void mutate(() => setTweak("breeze", value))} /></div></div>
+          {!shell && loading ? <p className="empty-state">正在读取…</p> : !shell ? <button className="button secondary" onClick={() => void reload()}>重试</button> : <MenuManager items={shell.items} disabled={blocked} loading={busy || loading} onRefresh={() => void reload()} onToggle={(id, enabled) => void mutate(() => setMenuItem(id, enabled))} />}
         </> : page === "details" ? <><h1>基础美化</h1>{!shell ? <div className="empty-state"><button className="button secondary" disabled={loading} onClick={() => void reload()}>重试</button></div> : <div className="settings-list">{shell.tweaks.map(tweak => <div className="setting-row" key={tweak.id}><div><h2>{tweak.label}</h2>{tweak.note && <p>{tweak.note}</p>}</div><Switch label={tweak.label} checked={tweak.enabled} disabled={blocked} onChange={value => void mutate(() => setTweak(tweak.id, value))} /></div>)}</div>}</> : <>
           <h1>还原</h1><div className="restore-actions">
             <RestoreButton label="恢复默认字体" description="恢复默认字体映射和原来的显示参数，修改前自动备份。成功后重启资源管理器，请先完成文件复制。" disabled={!desktop || busy || loading} onRestore={() => void mutate(() => restoreFonts("default"))} />

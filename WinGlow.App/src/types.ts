@@ -11,6 +11,10 @@ export interface BootstrapPayload {
 }
 export interface ActionResult { message: string; }
 export interface ToggleState { id: string; label: string; enabled: boolean; note: string | null; }
-export interface MenuItem { id: string; label: string; group: string; enabled: boolean; kind: string; }
+export interface MenuItem {
+  id: string; label: string; group: string; enabled: boolean; kind: string;
+  rawLabel: string; targets: string[]; menuLevel: "direct" | "cascade" | "extension";
+  children: string[]; visibilityNote: string | null; iconDataUrl: string | null; iconSource: string | null;
+}
 export interface ShellState { items: MenuItem[]; tweaks: ToggleState[]; breezeEnabled: boolean; pendingRecovery: boolean; }
 export interface RepairProgress { running: boolean; stage: string; logDir: string; }

@@ -4,6 +4,7 @@ mod explorer;
 mod font_engine;
 mod legacy;
 mod menu;
+mod menu_icon;
 mod models;
 mod preset_data;
 mod registry;
