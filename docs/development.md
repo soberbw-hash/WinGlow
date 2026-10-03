@@ -2,6 +2,10 @@
 
 主线为 WinGlow.App，Rust crate 为 winglow，程序为 WinGlow.exe。保留旧应用 identifier 以支持已安装版本升级；它是兼容标识，不是显示名称。根目录 C#/WinForms 工程为历史实现，不用于 3.x 打包。
 
+## 产品方向
+
+功能取舍以 [WinGlow 发展方向](product-direction.md) 为依据：优先完善字体优化，逐步扩展视觉美化与个性化设置，始终保持轻量、极简和可靠还原。发展目标与已实现、已验证的能力应分别记录。
+
 ## 技术底座
 
 Rust stable，edition 2024，最低 1.88；Tauri 2.12.1 稳定版、React 19.3、TypeScript 7、Vite 8。版本由 Cargo.lock 与 package-lock.json 固定。系统绘制仍由 Windows 各应用的渲染器决定；应用框架升级不能代替系统字体适配。
