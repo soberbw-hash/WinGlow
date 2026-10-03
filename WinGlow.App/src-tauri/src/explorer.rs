@@ -24,7 +24,7 @@ use windows::{
         },
         UI::{
             Shell::IsUserAnAdmin,
-            WindowsAndMessaging::{GetShellWindow, GetWindowThreadProcessId},
+            WindowsAndMessaging::{FindWindowW, GetShellWindow, GetWindowThreadProcessId},
         },
     },
     core::{PCWSTR, PWSTR},
@@ -211,8 +211,13 @@ fn restart_shell() -> Result<()> {
     }
     unsafe { TerminateProcess(shell.0, 0) }.context("无法停止资源管理器")?;
     let stopped = unsafe { WaitForSingleObject(shell.0, 5000) };
+    // Give Windows' automatic shell recovery time before resuming our fallback.
     // Windows may already have restarted the shell. In that case discard the
     // suspended replacement rather than opening an extra folder window.
+    let automatic_deadline = Instant::now() + Duration::from_secs(2);
+    while shell_pid().is_none_or(|pid| pid == old_pid) && Instant::now() < automatic_deadline {
+        thread::sleep(Duration::from_millis(100));
+    }
     if shell_pid().is_none_or(|pid| pid == old_pid) {
         replacement.resume().context("无法重新启动资源管理器")?;
     }
@@ -235,6 +240,54 @@ fn restart_shell() -> Result<()> {
 
 static OBSERVED_SHELL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+#[derive(Default)]
+struct StableTaskbar {
+    candidate: Option<(u32, isize)>,
+    since: Option<Instant>,
+}
+impl StableTaskbar {
+    fn ready(&mut self, candidate: Option<(u32, isize)>, now: Instant) -> bool {
+        if candidate != self.candidate {
+            self.candidate = candidate;
+            self.since = candidate.map(|_| now);
+        }
+        candidate.is_some()
+            && self
+                .since
+                .is_some_and(|since| now.duration_since(since) >= Duration::from_secs(2))
+    }
+}
+fn wait_for_taskbar() -> Result<()> {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut stable = StableTaskbar::default();
+    while Instant::now() < deadline {
+        let candidate = shell_pid().and_then(|pid| {
+            let window = unsafe { FindWindowW(windows::core::w!("Shell_TrayWnd"), None) }.ok()?;
+            let mut owner = 0;
+            unsafe {
+                GetWindowThreadProcessId(window, Some(&mut owner));
+            }
+            (owner == pid).then_some((pid, window.0 as isize))
+        });
+        if stable.ready(candidate, Instant::now()) {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    bail!("等待桌面和任务栏稳定超时，美化组件暂未启动")
+}
+
+fn protected_refresh(
+    pause: impl FnOnce() -> Result<()>,
+    refresh: impl FnOnce() -> Result<()>,
+    recover: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    // If the owned runtime cannot exit, leave Explorer alive. Even a failed
+    // pause/refresh attempts to restore the previously enabled effects.
+    let result = pause().and_then(|()| refresh());
+    finish_runtime(result, recover)
+}
+
 fn finish_runtime(refresh: Result<()>, recover: impl FnOnce() -> Result<()>) -> Result<()> {
     let recovery = recover();
     match (refresh, recovery) {
@@ -248,7 +301,7 @@ fn recover_effects() -> Result<()> {
     let taskbar = (|| {
         if crate::taskbar::enabled()? {
             // Rebind the owned hooks to the replacement Explorer, retaining exact config.
-            crate::taskbar::reload_owned()?;
+            crate::taskbar::sync()?;
         }
         Ok(())
     })();
@@ -261,12 +314,20 @@ fn recover_effects() -> Result<()> {
     finish_runtime(taskbar, || breeze)
 }
 pub fn restart() -> Result<()> {
-    let result = restart_shell();
-    OBSERVED_SHELL.store(
-        shell_pid().unwrap_or(0),
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    finish_runtime(result, recover_effects)
+    let result = protected_refresh(crate::taskbar::pause_owned, restart_shell, || {
+        wait_for_taskbar()?;
+        recover_effects()
+    });
+    if result.is_ok() {
+        OBSERVED_SHELL.store(
+            shell_pid().unwrap_or(0),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    } else {
+        // Leave a recovery pending for the bounded watcher retries.
+        OBSERVED_SHELL.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+    result
 }
 pub fn watch_shell() {
     OBSERVED_SHELL.store(
@@ -299,9 +360,18 @@ pub fn watch_shell() {
                 retry_pid = pid;
                 attempts = 0;
             }
-            match recover_effects() {
+            // External Explorer restarts also need a fresh runtime: stop before
+            // waiting so another rapid shell restart cannot reach its old hooks.
+            let recovery = crate::taskbar::pause_owned().and_then(|()| {
+                wait_for_taskbar()?;
+                recover_effects()
+            });
+            match recovery {
                 Ok(()) => {
-                    OBSERVED_SHELL.store(pid, std::sync::atomic::Ordering::Relaxed);
+                    OBSERVED_SHELL.store(
+                        shell_pid().unwrap_or(0),
+                        std::sync::atomic::Ordering::Relaxed,
+                    );
                 }
                 Err(error) => {
                     attempts += 1;
@@ -318,6 +388,109 @@ pub fn watch_shell() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refresh_stops_runtime_before_shell_and_always_recovers() {
+        let events = std::cell::RefCell::new(Vec::new());
+        protected_refresh(
+            || {
+                events.borrow_mut().push("pause");
+                Ok(())
+            },
+            || {
+                events.borrow_mut().push("shell");
+                Ok(())
+            },
+            || {
+                events.borrow_mut().push("recover");
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(*events.borrow(), ["pause", "shell", "recover"]);
+        events.borrow_mut().clear();
+        assert!(
+            protected_refresh(
+                || {
+                    events.borrow_mut().push("pause");
+                    bail!("stop failed")
+                },
+                || panic!("Explorer must stay alive when pause fails"),
+                || {
+                    events.borrow_mut().push("recover");
+                    Ok(())
+                },
+            )
+            .is_err()
+        );
+        assert_eq!(*events.borrow(), ["pause", "recover"]);
+        events.borrow_mut().clear();
+        assert!(
+            protected_refresh(
+                || {
+                    events.borrow_mut().push("pause");
+                    Ok(())
+                },
+                || {
+                    events.borrow_mut().push("shell");
+                    bail!("shell failed")
+                },
+                || {
+                    events.borrow_mut().push("recover");
+                    Ok(())
+                },
+            )
+            .is_err()
+        );
+        assert_eq!(*events.borrow(), ["pause", "shell", "recover"]);
+    }
+
+    #[test]
+    fn stability_requires_same_shell_and_taskbar_without_gaps() {
+        let start = Instant::now();
+        let mut stable = StableTaskbar::default();
+        assert!(!stable.ready(Some((1, 10)), start));
+        assert!(!stable.ready(Some((1, 10)), start + Duration::from_secs(1)));
+        assert!(stable.ready(Some((1, 10)), start + Duration::from_secs(2)));
+        assert!(!stable.ready(None, start + Duration::from_secs(3)));
+        assert!(!stable.ready(Some((2, 20)), start + Duration::from_secs(4)));
+        assert!(!stable.ready(Some((2, 21)), start + Duration::from_secs(6)));
+        assert!(stable.ready(Some((2, 21)), start + Duration::from_secs(8)));
+    }
+
+    #[test]
+    #[ignore = "Explicit real-desktop acceptance only: restarts Explorer twice"]
+    fn real_desktop_two_refreshes_keep_owned_effects_and_config() {
+        let _guard = crate::worker::optimization_lock().unwrap();
+        crate::shell_engine::ensure_ready().unwrap();
+        assert!(
+            crate::taskbar::enabled().unwrap(),
+            "Taskbar effect must already be enabled"
+        );
+        crate::taskbar::preflight().unwrap();
+        let config = crate::taskbar::read_config().unwrap();
+        let breeze_enabled = crate::breeze::enabled().unwrap();
+        let start = Instant::now();
+        for _ in 0..2 {
+            let before = shell_pid().unwrap();
+            restart().unwrap();
+            assert_ne!(shell_pid(), Some(before));
+            assert!(crate::taskbar::running().unwrap());
+            assert!(!crate::taskbar::warning_dialog_visible().unwrap());
+            assert_eq!(crate::taskbar::read_config().unwrap(), config);
+            if breeze_enabled {
+                assert!(crate::breeze::running().unwrap());
+            }
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "Test must exercise the upstream 30s threshold"
+        );
+        thread::sleep(Duration::from_secs(3));
+        assert!(crate::taskbar::running().unwrap());
+        assert!(!crate::taskbar::warning_dialog_visible().unwrap());
+        assert_eq!(crate::taskbar::read_config().unwrap(), config);
+    }
 
     #[test]
     fn extension_switch_and_details_restore_refresh_but_label_switch_does_not() {

@@ -103,3 +103,15 @@ transaction 保存快照并同步落盘后才写设置。repair 扫描前新增�
 自动精简使用纯 plan_from，测试覆盖先前手动关闭、关闭父项、保留项与重复执行后空计划；所有输出都是隐藏标记，不输出恢复删除值。真实图标依次来自注册图标、扩展 DLL、命令 EXE；拒绝网络/相对路径及通用脚本宿主资源，前端采用功能图标兜底。图标表示类型的兜底不冒充应用官方图标。
 
 任务栏默认配置依据 [TranslucentTB 官方配置](https://github.com/TranslucentTB/TranslucentTB.github.io/blob/master/config.md)，desktop_appearance 使用 accent=blur、show_line=true。
+
+## 3.2.3 Explorer / TranslucentTB 生命周期修复
+
+上游 2026.2 在30秒内观察到两次 Explorer PID 变化时，弹出阻塞警告后 ExitProcess(1)：[ResetState 源码](https://github.com/TranslucentTB/TranslucentTB/blob/2026.2/TranslucentTB/taskbar/taskbarattributeworker.cpp#L1351-L1359)。3.2.2 的刷新后重连太晚，且已阻塞实例无法处理普通 WM_CLOSE。
+
+新的 protected_refresh 顺序：pause_owned 保存独立配置精确字节，停止自有实例并恢复可能回写的原配置；restart_shell 刷新；wait_for_taskbar 确認 GetShellWindow 与 Shell_TrayWnd 同 PID 且 PID/HWND 连续稳定2秒；最后仅同步已启用的效果。暂停失败不终止 Explorer，刷新失败仍尝试恢复效果。只有完整恢复成功才更新观察 PID，失败保留 watcher 有限重试机会。
+
+正常退出仍发送 WM_CLOSE。4秒无响应时，重新 OpenProcess 获得指定 PID 的查询/终止/等待句柄，QueryFullProcessImageNameW 核验 WinGlow 独立组件的完整路径，才通过该句柄 TerminateProcess 并等待退出；不按名称强杀，不操作其他来源，不修改上游保护或二进制。Windows 的自动 Shell 恢复先获得2秒机会，避免过早启动备用进程引入竞争。外部 PID 变化的 watcher 同样先暂停自有实例，再等待任务栏稳定，最多3次恢复；依赖 WinGlow 正在运行，不能保证由其他程序引起的极短间隔重启永不出现上游提示。
+
+显式实机验收命令（会重启桌面两次，不属于默认测试）：
+`cargo test --manifest-path WinGlow.App/src-tauri/Cargo.toml explorer::tests::real_desktop_two_refreshes_keep_owned_effects_and_config -- --ignored --exact --nocapture`
+它要求任务栏已经启用，持有优化互斥锁，检查两次 shell PID 确实改变、30秒内完成、独立配置逐字节不变、已启用 Breeze/任务栏仍在运行且无自有可见警告对话框。不改字体、菜单或系统设置。

@@ -2,7 +2,7 @@
 
 让 Windows 更合心意。调整字体、右键菜单与桌面细节。
 
-3.2.2 本地测试版。首页一键优化字体、精简和美化右键菜单，并启用 Windows 11 透明任务栏；可一键撤销。三套字体内置，鸿蒙仅标准与粗两档。公开发布以 [GitHub Releases](https://github.com/soberbw-hash/WinGlow/releases) 为准。
+3.2.3 本地测试版。首页一键优化字体、精简和美化右键菜单，并启用 Windows 11 透明任务栏；可一键撤销。三套字体内置，鸿蒙仅标准与粗两档。公开发布以 [GitHub Releases](https://github.com/soberbw-hash/WinGlow/releases) 为准。
 
 官方图标使用用户提供的原图，来源与原文件见 [品牌资源](docs/branding/README.md)。原图与来源随安装版及便携版保存。
 
@@ -56,11 +56,13 @@ powershell -ExecutionPolicy Bypass -File scripts/Build-ModernPackages.ps1
 - [应用后自动刷新验证记录](docs/verification-3.1.2.md)
 - [苹方内置验证记录](docs/verification-3.1.3.md)
 - [右键菜单分类验证记录](docs/verification-3.1.4.md)
-- [一键优化、双字重与恢复验证记录](docs/verification-3.2.2.md)
+- [一键优化、双字重与恢复验证记录](docs/verification-3.2.3.md)
 - [热门美化工具候选清单](docs/customization-candidates.md)
 - [字体授权与来源](字体授权说明.md)
 - [外部引擎声明](licenses/THIRD-PARTY.txt)
 
 软件主体 MIT；字体沿用各自许可证，外部 Breeze 使用 AGPL-3.0，独立 TranslucentTB 使用 GPL-3.0。
 
-3.2.2 验收修订：主页统一内置鸿蒙字体、图标标题按钮共用中轴，适配高 DPI；任务栏默认模糊并显示细线。菜单精简覆盖 BitLocker 入口、旧版 Media Player、华硕、ToDesk、英伟达、豆包、ChatGPT 项目入口；只隐藏、不重新开启已关闭项目。优先读取真实程序图标，无法提取时使用对应功能图标。扩展名开关完成后自动刷新资源管理器，删除桌面图标文字隐藏入口，修复打开备份权限错误。操作自动备份；备份失败则停止修改。
+3.2.3 验收修订：主页统一内置鸿蒙字体、图标标题按钮共用中轴，适配高 DPI；任务栏默认模糊并显示细线。菜单精简覆盖 BitLocker 入口、旧版 Media Player、华硕、ToDesk、英伟达、豆包、ChatGPT 项目入口；只隐藏、不重新开启已关闭项目。优先读取真实程序图标，无法提取时使用对应功能图标。扩展名开关完成后自动刷新资源管理器，删除桌面图标文字隐藏入口，修复打开备份权限错误。操作自动备份；备份失败则停止修改。
+
+3.2.3 修复资源管理器刷新导致任务栏组件退出：刷新前暂停自有 TranslucentTB，桌面和任务栏稳定后恢复，并保留原配置；卡住的报错实例先正常退出，无响应时核验进程句柄的完整路径后结束自有实例。

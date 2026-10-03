@@ -18,7 +18,7 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, HWND, LPARAM, WPARAM},
+        Foundation::{CloseHandle, HWND, LPARAM, WAIT_OBJECT_0, WPARAM},
         System::{
             Diagnostics::ToolHelp::{
                 CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
@@ -26,7 +26,8 @@ use windows::{
             },
             Threading::{
                 OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-                QueryFullProcessImageNameW,
+                PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, QueryFullProcessImageNameW,
+                TerminateProcess, WaitForSingleObject,
             },
         },
         UI::WindowsAndMessaging::{
@@ -280,12 +281,59 @@ pub fn stop() -> Result<()> {
         let deadline = Instant::now() + Duration::from_secs(4);
         while processes()?.iter().any(|(id, _)| *id == pid) {
             if Instant::now() >= deadline {
-                bail!("透明任务栏未退出，请保留备份并重试还原。");
+                // A restart-protection dialog can block the upstream main thread.
+                // Revalidate the exact process HANDLE before ending only our copy.
+                stop_unresponsive_owned(pid, &own)?;
+                break;
             }
             std::thread::sleep(Duration::from_millis(100));
         }
     }
     Ok(())
+}
+fn stop_unresponsive_owned(pid: u32, expected: &std::path::Path) -> Result<()> {
+    let handle = unsafe {
+        OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE | PROCESS_SYNCHRONIZE,
+            false,
+            pid,
+        )
+    };
+    let handle = match handle {
+        Ok(handle) => handle,
+        Err(error) => {
+            if !processes()?.iter().any(|(id, _)| *id == pid) {
+                return Ok(());
+            }
+            return Err(error.into());
+        }
+    };
+    let result = (|| {
+        // PID reuse must never allow us to end a different program.
+        let mut buffer = vec![0u16; 32768];
+        let mut size = buffer.len() as u32;
+        unsafe {
+            QueryFullProcessImageNameW(
+                handle,
+                PROCESS_NAME_WIN32,
+                PWSTR(buffer.as_mut_ptr()),
+                &mut size,
+            )?;
+        }
+        let actual = String::from_utf16_lossy(&buffer[..size as usize]);
+        if !actual.eq_ignore_ascii_case(&expected.to_string_lossy()) {
+            bail!("任务栏进程来源已变化，未结束该进程");
+        }
+        unsafe { TerminateProcess(handle, 0) }.context("无法结束无响应的自有任务栏组件")?;
+        if unsafe { WaitForSingleObject(handle, 4000) } != WAIT_OBJECT_0 {
+            bail!("等待自有任务栏组件退出超时");
+        }
+        Ok(())
+    })();
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    result
 }
 pub fn sync() -> Result<()> {
     if !enabled()? {
@@ -312,13 +360,17 @@ pub fn sync() -> Result<()> {
     }
     Ok(())
 }
-pub fn reload_owned() -> Result<()> {
+pub fn pause_owned() -> Result<()> {
     // A closing runtime may save its cached config. Retain the intended exact bytes.
     let config = read_config()?;
     stop()?;
     if read_config()? != config {
         write_config(config.as_ref())?;
     }
+    Ok(())
+}
+pub fn reload_owned() -> Result<()> {
+    pause_owned()?;
     sync()
 }
 pub fn set(enable: bool) -> Result<ActionResult> {
@@ -361,6 +413,41 @@ pub fn running() -> Result<bool> {
         p.to_string_lossy()
             .eq_ignore_ascii_case(&own.to_string_lossy())
     }))
+}
+
+#[cfg(test)]
+pub fn warning_dialog_visible() -> Result<bool> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, IsWindowVisible};
+    unsafe extern "system" fn inspect(window: HWND, param: LPARAM) -> BOOL {
+        let state = unsafe { &mut *(param.0 as *mut (Vec<u32>, bool)) };
+        let mut pid = 0;
+        let mut class = [0u16; 128];
+        unsafe {
+            GetWindowThreadProcessId(window, Some(&mut pid));
+            if state.0.contains(&pid) && IsWindowVisible(window).as_bool() {
+                let size = GetClassNameW(window, &mut class) as usize;
+                state.1 |= String::from_utf16_lossy(&class[..size]) == "#32770";
+            }
+        }
+        BOOL(1)
+    }
+    let own = exe()?;
+    let ids = processes()?
+        .into_iter()
+        .filter(|(_, path)| {
+            path.to_string_lossy()
+                .eq_ignore_ascii_case(&own.to_string_lossy())
+        })
+        .map(|(pid, _)| pid)
+        .collect();
+    let mut state = (ids, false);
+    unsafe {
+        EnumWindows(
+            Some(inspect),
+            LPARAM(&mut state as *mut (Vec<u32>, bool) as isize),
+        )?;
+    }
+    Ok(state.1)
 }
 
 #[cfg(test)]
