@@ -97,6 +97,7 @@ fn friendly(raw: &str) -> String {
         "doubao context menu" => "豆包".into(),
         "360zip file type" => "360 压缩".into(),
         "encryption context menu" => "加密 / 解密".into(),
+        "previous versions property page" => "以前的版本".into(),
         "sharing" | "sharing handler" => "共享".into(),
         "pinto start screen" | "pintostartscreen" => "固定到开始菜单".into(),
         "sendto" | "microsoft sendto service" => "发送到".into(),
@@ -303,10 +304,45 @@ fn id(scope: &Scope, name: &str) -> String {
     )
 }
 pub fn scan() -> Result<Vec<(MenuItem, registry::Slot)>> {
-    Ok(scan_impl(true)?
-        .into_iter()
-        .filter(|(item, _)| item.kind != "子菜单")
-        .collect())
+    let mut grouped: Vec<(MenuItem, registry::Slot)> = Vec::new();
+    for (item, slot) in scan_impl(true)? {
+        if item.kind == "子菜单" {
+            continue;
+        }
+        if let Some((existing, _)) = grouped.iter_mut().find(|(old, _)| old.id == item.id) {
+            existing.enabled |= item.enabled;
+            existing.auto_hide &= item.auto_hide;
+            for target in item.targets {
+                if !existing.targets.contains(&target) {
+                    existing.targets.push(target);
+                }
+            }
+            if existing.group != item.group {
+                existing.group = existing.targets.join(" / ");
+            }
+        } else {
+            grouped.push((item, slot));
+        }
+    }
+    Ok(grouped)
+}
+// Merge only leaf verbs with matching registration names and executable behavior.
+// Equal translated titles alone do not establish that two commands are the same.
+fn leaf_identity(name: &str, label: &str, command: &str, delegate: &str) -> Option<String> {
+    if command.is_empty() && delegate.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "merged:{:x}",
+        Sha256::digest(
+            format!(
+                "{}\0{label}\0{command}\0{}",
+                name.to_lowercase(),
+                delegate.to_lowercase()
+            )
+            .as_bytes()
+        )
+    ))
 }
 pub(crate) fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> {
     let mut items: Vec<(MenuItem, registry::Slot)> = Vec::new();
@@ -352,9 +388,24 @@ pub(crate) fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> 
                         || key.get_raw_value("SubCommands").is_ok()
                         || key.get_raw_value("ExtendedSubCommandsKey").is_ok();
                     let (icon_data_url, icon_source) = item_icon(&key, None, icons);
+                    let command_key = key.open_subkey("command").ok();
+                    let command = command_key
+                        .as_ref()
+                        .and_then(|k| k.get_value::<String, _>("").ok())
+                        .unwrap_or_default();
+                    let delegate = command_key
+                        .as_ref()
+                        .and_then(|k| k.get_value::<String, _>("DelegateExecute").ok())
+                        .or_else(|| key.get_value("ExplorerCommandHandler").ok())
+                        .unwrap_or_default();
+                    let identity = if !cascading {
+                        leaf_identity(&name, &friendly(&label), &command, &delegate)
+                    } else {
+                        None
+                    };
                     items.push((
                         MenuItem {
-                            id: id(&slot.scope, &name),
+                            id: identity.unwrap_or_else(|| id(&slot.scope, &name)),
                             label: friendly(&label),
                             auto_hide: crate::menu_policy::should_hide(&label, &slot, &key, None),
                             raw_label: label,
@@ -472,20 +523,25 @@ pub(crate) fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> 
     Ok(items)
 }
 pub fn resolve(id: &str, enabled: bool) -> Result<Vec<Entry>> {
-    let Some((_, slot)) = scan_impl(false)?
+    let slots: Vec<_> = scan_impl(false)?
         .into_iter()
-        .find(|(item, _)| item.id == id)
-    else {
+        .filter(|(item, _)| item.id == id)
+        .map(|(_, slot)| slot)
+        .collect();
+    if slots.is_empty() {
         bail!("菜单项已变化，请刷新后再试。");
-    };
-    let mut entries = vec![Entry {
-        slot,
-        value: if enabled {
-            None
-        } else {
-            Some(registry::string(""))
-        },
-    }];
+    }
+    let mut entries: Vec<_> = slots
+        .into_iter()
+        .map(|slot| Entry {
+            slot,
+            value: if enabled {
+                None
+            } else {
+                Some(registry::string(""))
+            },
+        })
+        .collect();
     if enabled && entries[0].slot.scope == Scope::BlockedExtensions {
         let machine = registry::slot(Scope::MachineBlockedExtensions, &entries[0].slot.name);
         if crate::registry::WindowsRegistry.read(&machine)?.is_some() {
@@ -510,6 +566,19 @@ pub fn needs_admin(id: &str) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn duplicate_titles_require_same_command_identity() {
+        let jpg = leaf_identity("setdesktopwallpaper", "设置为桌面背景", "wallpaper %1", "");
+        assert_eq!(
+            jpg,
+            leaf_identity("SetDesktopWallpaper", "设置为桌面背景", "wallpaper %1", "")
+        );
+        assert_ne!(
+            jpg,
+            leaf_identity("setdesktopwallpaper", "设置为桌面背景", "other %1", "")
+        );
+        assert_eq!(None, leaf_identity("unknown", "相同标题", "", ""));
+    }
     #[test]
     fn static_children_are_real_independent_nested_switches() {
         let root = RegKey::predef(HKEY_CURRENT_USER);

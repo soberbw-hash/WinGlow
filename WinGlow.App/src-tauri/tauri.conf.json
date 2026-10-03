@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "WinGlow",
-  "version": "3.2.4",
+  "version": "1.0.0",
   "identifier": "com.sober.windowsfonttuner2",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -70,7 +70,20 @@
         "installerIcon": "icons/icon.ico",
         "uninstallerIcon": "icons/icon.ico"
       }
-    }
+    },
+    "createUpdaterArtifacts": true
   },
-  "mainBinaryName": "WinGlow"
+  "mainBinaryName": "WinGlow",
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDExQkY0MjQ1M0VENDZCNzQKUldSMGE5UStSVUsvRVNMaVUwUmV5N1k3MDhZWldvODZkUVZIL3pDblMvU0ZKeTBkYWE0cndJWDIK",
+      "endpoints": [
+        "https://github.com/soberbw-hash/WinGlow/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      },
+      "requireSignedVersion": true
+    }
+  }
 }

@@ -1,3 +1,5 @@
+mod app_update;
+mod archive_filter;
 mod breeze;
 mod desktop;
 mod explorer;
@@ -134,12 +136,22 @@ pub fn run() {
         return;
     }
     tauri::Builder::default()
-        .setup(|_| {
+        .setup(|app| {
+            if std::env::args().any(|arg| arg == "--verify-updater") {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+                tauri::async_runtime::spawn(app_update::diagnose(app.handle().clone()));
+                return Ok(());
+            }
             explorer::watch_shell();
+            app_update::check(app.handle().clone());
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             load_bootstrap,
             apply_font,
@@ -153,8 +165,26 @@ pub fn run() {
             repair_progress,
             optimize_system,
             optimize_menu,
-            open_backup
+            open_backup,
+            update_status,
+            check_updates,
+            install_update
         ])
         .run(tauri::generate_context!())
         .expect("启动 WinGlow失败");
+}
+
+#[tauri::command]
+fn update_status() -> app_update::View {
+    app_update::view()
+}
+#[tauri::command]
+fn check_updates(app: tauri::AppHandle) -> app_update::View {
+    app_update::check(app)
+}
+#[tauri::command]
+async fn install_update() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(app_update::install)
+        .await
+        .map_err(|e| e.to_string())?
 }

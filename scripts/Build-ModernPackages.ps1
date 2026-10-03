@@ -1,4 +1,4 @@
-﻿param([switch]$SkipChecks)
+﻿param([switch]$SkipChecks, [string]$SigningKeyPath)
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $appRoot = Join-Path $repoRoot 'WinGlow.App'
@@ -6,6 +6,12 @@ $config = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $appRoot 'src-
 $package = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $appRoot 'package.json') | ConvertFrom-Json
 if ($config.version -ne $package.version) { throw 'Frontend and package versions do not match.' }
 $version = $config.version
+if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
+    if (-not $SigningKeyPath) { $SigningKeyPath = Join-Path $env:USERPROFILE '.codex\secrets\WinGlow\updater.key' }
+    if (-not (Test-Path -LiteralPath $SigningKeyPath -PathType Leaf)) { throw 'Updater signing key missing. Set TAURI_SIGNING_PRIVATE_KEY or pass -SigningKeyPath.' }
+    $env:TAURI_SIGNING_PRIVATE_KEY = $SigningKeyPath
+    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''
+}
 $outRoot = Join-Path $repoRoot "artifacts\WinGlow-$version"
 $portable = Join-Path $outRoot "WinGlow-$version-Portable"
 function Invoke-Checked([string]$program, [string[]]$arguments) {
@@ -19,11 +25,24 @@ try {
         Invoke-Checked 'cargo' @('fmt', '--manifest-path', 'src-tauri/Cargo.toml', '--check')
         Invoke-Checked 'cargo' @('clippy', '--manifest-path', 'src-tauri/Cargo.toml', '--all-targets', '--', '-D', 'warnings')
         Invoke-Checked 'cargo' @('test', '--manifest-path', 'src-tauri/Cargo.toml')
+        Invoke-Checked 'node' @('../scripts/Verify-ArchiveFilter.mjs')
     }
     Invoke-Checked 'npm.cmd' @('run', 'tauri', 'build', '--', '--bundles', 'nsis')
     New-Item -ItemType Directory -Path $portable -Force | Out-Null
     $setup = Join-Path $appRoot "src-tauri\target\release\bundle\nsis\$($config.productName)_${version}_x64-setup.exe"
     Copy-Item -LiteralPath $setup -Destination (Join-Path $outRoot "WinGlow-$version-Setup.exe") -Force
+    $signature = Get-Content -Raw -LiteralPath ($setup + '.sig')
+    Copy-Item -LiteralPath ($setup + '.sig') -Destination (Join-Path $outRoot "WinGlow-$version-Setup.exe.sig") -Force
+    $manifest = @{
+        version = $version
+        notes = '字体优化、右键菜单与桌面美化。请先完成正在进行的系统设置操作。'
+        pub_date = [DateTime]::UtcNow.ToString('o')
+        platforms = @{'windows-x86_64' = @{
+            signature = $signature.Trim()
+            url = "https://github.com/soberbw-hash/WinGlow/releases/download/v$version/WinGlow-$version-Setup.exe"
+        }}
+    }
+    [IO.File]::WriteAllText((Join-Path $outRoot 'latest.json'), ($manifest | ConvertTo-Json -Depth 5), [Text.UTF8Encoding]::new($false))
     # Tauri mainBinaryName supplies the renamed executable for both package formats.
     Copy-Item -LiteralPath (Join-Path $appRoot 'src-tauri\target\release\WinGlow.exe') -Destination $portable -Force
     $licenses = Join-Path $portable 'licenses'
@@ -48,7 +67,7 @@ try {
     $guide = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot '使用说明.txt')
     $guide | Set-Content -LiteralPath (Join-Path $portable 'README.md') -Encoding UTF8
     Compress-Archive -LiteralPath $portable -DestinationPath (Join-Path $outRoot "WinGlow-$version-Portable.zip") -Force
-    $lines = Get-ChildItem -LiteralPath $outRoot -File | Where-Object {$_.Extension -in '.exe','.zip'} | ForEach-Object { "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" }
+    $lines = Get-ChildItem -LiteralPath $outRoot -File | Where-Object {$_.Extension -in '.exe','.zip','.sig','.json'} | ForEach-Object { "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" }
     $lines | Set-Content -LiteralPath (Join-Path $outRoot 'SHA256SUMS.txt') -Encoding utf8
     Write-Output "Packages saved to $outRoot"
 } finally { Pop-Location }

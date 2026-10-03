@@ -28,6 +28,7 @@ pub enum Scope {
     WindowMetrics,
     LiveUiFonts,
     TaskbarConfig,
+    ArchiveFilter,
 }
 
 impl Scope {
@@ -59,6 +60,7 @@ impl Scope {
             Self::Startup => r"Software\Microsoft\Windows\CurrentVersion\Run".into(),
             Self::WindowMetrics => r"Control Panel\Desktop\WindowMetrics".into(),
             Self::TaskbarConfig => String::new(),
+            Self::ArchiveFilter => String::new(),
             Self::LiveUiFonts => String::new(), // Virtual slot, handled through native APIs below.
         }
     }
@@ -198,6 +200,7 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
         Scope::WindowMetrics => crate::ui_fonts::NAMES.contains(&slot.name.as_str()),
         Scope::LiveUiFonts => slot.name == "Fonts",
         Scope::TaskbarConfig => slot.name == "settings.json",
+        Scope::ArchiveFilter => slot.name == "WinGlow-ArchiveFilter.js",
         Scope::MenuVerb { path, .. } => {
             crate::menu::valid_verb_path(path) && slot.name == "LegacyDisable"
         }
@@ -248,6 +251,9 @@ pub struct WindowsRegistry;
 impl ValueStore for WindowsRegistry {
     fn read(&self, slot: &Slot) -> Result<Option<StoredValue>> {
         validate_slot(slot)?;
+        if slot.scope == Scope::ArchiveFilter {
+            return crate::archive_filter::read();
+        }
         if slot.scope == Scope::TaskbarConfig {
             return crate::taskbar::read_config();
         }
@@ -274,6 +280,9 @@ impl ValueStore for WindowsRegistry {
     }
     fn write(&mut self, entry: &Entry) -> Result<()> {
         validate_entries(std::slice::from_ref(entry))?;
+        if entry.slot.scope == Scope::ArchiveFilter {
+            return crate::archive_filter::write(entry.value.as_ref());
+        }
         if entry.slot.scope == Scope::TaskbarConfig {
             return crate::taskbar::write_config(entry.value.as_ref());
         }

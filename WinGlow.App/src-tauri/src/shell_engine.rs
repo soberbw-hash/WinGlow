@@ -102,8 +102,6 @@ pub fn load() -> Result<ShellState> {
             "隐藏盾牌角标",
             Some("实验功能，部分 Windows 版本可能不生效。"),
         ),
-        ("desktop-icons", "隐藏桌面图标", None),
-        ("file-extensions", "显示文件扩展名", None),
     ] {
         let value = WindowsRegistry.read(&tweak_slot(id)?)?;
         let enabled = match id {
@@ -180,6 +178,9 @@ pub fn overlay_plan() -> Result<Vec<Entry>> {
         .collect())
 }
 pub fn toggle(id: &str, enabled: bool) -> Result<ActionResult> {
+    if matches!(id, "desktop-icons" | "file-extensions" | "desktop-labels") {
+        bail!("此美化选项已移除，旧修改仍可通过还原基础美化撤销。");
+    }
     if id == "transparent-taskbar" {
         return crate::taskbar::set(enabled);
     }
@@ -268,6 +269,7 @@ pub fn restore(category: &str) -> Result<ActionResult> {
                         | Scope::BlockedExtensions
                         | Scope::MachineBlockedExtensions
                         | Scope::Startup
+                        | Scope::ArchiveFilter
                 ),
                 _ => matches!(
                     entry.slot.scope,

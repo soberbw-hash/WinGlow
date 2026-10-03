@@ -136,11 +136,28 @@ fn confirmed_third_party(name: &str, source: &str) -> bool {
         "wps",
         "adobe",
         "foxit",
+        "previous versions",
+        "previousversions",
+        "以前的版本",
+        "encryption context menu",
+        "加密",
+        "解密",
+        "slideshow",
+        "幻灯片",
     ]
     .iter()
     .any(|n| explicit.contains(n))
     {
         return true;
+    }
+    // Dynamic archive handlers expose essential compress/extract actions together.
+    // Keep them until their real child controls can be identified; never disable
+    // the whole handler just to remove ancillary archive actions.
+    if ["360zip", "360 压缩", "czip", "7-zip", "7zip", "winrar"]
+        .iter()
+        .any(|x| explicit.contains(x))
+    {
+        return false;
     }
     if critical(name) || critical(source) {
         return false;
@@ -242,21 +259,23 @@ pub fn should_hide(name: &str, slot: &Slot, key: &RegKey, server: Option<&RegKey
 fn plan_from(items: Vec<(crate::models::MenuItem, Slot)>) -> Vec<Entry> {
     fn collect(
         item: &crate::models::MenuItem,
-        slots: &std::collections::BTreeMap<String, Slot>,
+        slots: &std::collections::BTreeMap<String, Vec<Slot>>,
         entries: &mut std::collections::BTreeMap<Slot, Entry>,
     ) {
         if !item.enabled {
             return;
         }
         if item.auto_hide {
-            if let Some(slot) = slots.get(&item.id) {
-                entries.insert(
-                    slot.clone(),
-                    Entry {
-                        slot: slot.clone(),
-                        value: Some(registry::string("")),
-                    },
-                );
+            if let Some(members) = slots.get(&item.id) {
+                for slot in members {
+                    entries.insert(
+                        slot.clone(),
+                        Entry {
+                            slot: slot.clone(),
+                            value: Some(registry::string("")),
+                        },
+                    );
+                }
             }
         } else {
             for child in &item.sub_items {
@@ -264,10 +283,15 @@ fn plan_from(items: Vec<(crate::models::MenuItem, Slot)>) -> Vec<Entry> {
             }
         }
     }
-    let slots = items
-        .iter()
-        .map(|(item, slot)| (item.id.clone(), slot.clone()))
-        .collect();
+    let mut slots: std::collections::BTreeMap<String, Vec<Slot>> =
+        std::collections::BTreeMap::new();
+    for (item, slot) in &items {
+        // Only add enabled registrations: cleanup must never re-enable or rewrite
+        // a manually disabled member of a merged row.
+        if item.enabled {
+            slots.entry(item.id.clone()).or_default().push(slot.clone());
+        }
+    }
     let mut entries = std::collections::BTreeMap::new();
     for (item, _) in items.iter().filter(|(item, _)| item.kind != "子菜单") {
         collect(item, &slots, &mut entries);
@@ -275,7 +299,9 @@ fn plan_from(items: Vec<(crate::models::MenuItem, Slot)>) -> Vec<Entry> {
     entries.into_values().collect()
 }
 pub fn plan() -> Result<Vec<Entry>> {
-    Ok(plan_from(menu::scan_impl(false)?))
+    let mut entries = plan_from(menu::scan_impl(false)?);
+    entries.extend(crate::archive_filter::plan()?);
+    Ok(entries)
 }
 #[cfg(test)]
 mod tests {
@@ -348,6 +374,9 @@ mod tests {
             "NVIDIA 控制面板",
             "豆包",
             "Open project in ChatGPT",
+            "Previous Versions Property Page",
+            "Encryption Context Menu",
+            "SlideshowContextMenu",
         ] {
             assert!(confirmed_third_party(label, ""), "{label}");
         }
@@ -371,7 +400,10 @@ mod tests {
             "7zip security scanner",
             "D:\\7zip\\scanner.exe"
         ));
-        assert!(confirmed_third_party("7-Zip", "D:\\Apps\\7-Zip\\7-zip.dll"));
+        assert!(!confirmed_third_party(
+            "7-Zip",
+            "D:\\Apps\\7-Zip\\7-zip.dll"
+        ));
         assert!(confirmed_third_party(
             "Open Git Bash Here",
             "\"C:\\Program Files\\Git\\git-bash.exe\" --cd=\"%V\""
