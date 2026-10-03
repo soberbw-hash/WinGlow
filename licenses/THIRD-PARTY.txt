@@ -13,3 +13,10 @@ Breeze Shell 0.1.34：AGPL-3.0，独立、未经修改的上游可执行程序�
 下载文件 SHA-256：80294ffea75113a7f65eecbe777b579ce671559f0b49f2a83b291ec865f433c2
 
 ContextMenuManager 与 Nilesoft Shell 仅作为研究参考；未复制其实现或打包其二进制文件。
+
+TranslucentTB 2026.2：GPL-3.0，独立、未经修改的官方 Windows 11 x64 便携发行版。组件随安装包内附，并在用户启用时释放到本工具自己的数据目录，使用独立 settings.json。
+源码：https://github.com/TranslucentTB/TranslucentTB/tree/2026.2
+发行版：https://github.com/TranslucentTB/TranslucentTB/releases/tag/2026.2
+许可证全文：TranslucentTB-GPL-3.0.md
+来源与 SHA-256：TranslucentTB-SOURCE.md
+未修改用户另外安装的 Store/MSIX 或便携版本。Windhawk、Lively、Rainmeter、ExplorerPatcher、Open-Shell 和 DWMBlurGlass 仅列为候选，未集成。

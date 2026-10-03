@@ -124,10 +124,15 @@ pub fn load() -> Result<ShellState> {
             note: note.map(str::to_string),
         });
     }
+    let (optimization_active, optimization_pending) = crate::optimization::state()?;
     Ok(ShellState {
         items: menu::scan()?.into_iter().map(|(i, _)| i).collect(),
         tweaks,
         breeze_enabled: crate::breeze::enabled()?,
+        taskbar_enabled: crate::taskbar::enabled()?,
+        taskbar_supported: crate::taskbar::supported(),
+        optimization_active,
+        optimization_pending,
         pending_recovery: transaction::backup_directories(&font_engine::backup_root()?)?
             .iter()
             .any(|d| transaction::is_pending(d)),
@@ -165,6 +170,9 @@ fn prepare_icon() -> Result<()> {
     Ok(())
 }
 pub fn toggle(id: &str, enabled: bool) -> Result<ActionResult> {
+    if id == "transparent-taskbar" {
+        return crate::taskbar::set(enabled);
+    }
     if id == "breeze" {
         return crate::breeze::set(enabled);
     }
@@ -252,9 +260,20 @@ pub fn restore(category: &str) -> Result<ActionResult> {
                 ),
                 _ => matches!(
                     entry.slot.scope,
-                    Scope::Explorer | Scope::IconOverrides | Scope::DesktopView
+                    Scope::Explorer
+                        | Scope::IconOverrides
+                        | Scope::DesktopView
+                        | Scope::TaskbarConfig
                 ),
             };
+            let belongs = belongs
+                && !(category == "menu"
+                    && entry.slot.scope == Scope::Startup
+                    && entry.slot.name == "WinGlow-TranslucentTB");
+            let belongs = belongs
+                || category == "details"
+                    && entry.slot.scope == Scope::Startup
+                    && entry.slot.name == "WinGlow-TranslucentTB";
             if belongs && !slots.contains(&entry.slot) {
                 slots.push(entry.slot);
             }
@@ -290,8 +309,13 @@ pub fn restore(category: &str) -> Result<ActionResult> {
     } else {
         None
     };
-    let stops_breeze =
-        entries.iter().any(|e| e.slot.scope == Scope::Startup) && crate::breeze::enabled()?;
+    let stops_breeze = entries.iter().any(|e| {
+        e.slot.scope == Scope::Startup
+            && matches!(
+                e.slot.name.as_str(),
+                "WinGlow-Breeze" | "WindowsWeitiao-Breeze"
+            )
+    }) && crate::breeze::enabled()?;
     preserve_view_bits(&mut entries)?;
     let result = commit(&format!("reset:{category}"), entries, || {
         if stops_breeze {
@@ -337,8 +361,13 @@ pub fn undo() -> Result<ActionResult> {
         None
     };
     let mut entries = j.before;
-    let stops_breeze =
-        entries.iter().any(|e| e.slot.scope == Scope::Startup) && crate::breeze::enabled()?;
+    let stops_breeze = entries.iter().any(|e| {
+        e.slot.scope == Scope::Startup
+            && matches!(
+                e.slot.name.as_str(),
+                "WinGlow-Breeze" | "WindowsWeitiao-Breeze"
+            )
+    }) && crate::breeze::enabled()?;
     preserve_view_bits(&mut entries)?;
     let result = transaction::execute_with_view(
         &mut WindowsRegistry,

@@ -55,7 +55,7 @@ pub fn enabled() -> Result<bool> {
     }
     Ok(false)
 }
-fn install() -> Result<PathBuf> {
+pub fn install() -> Result<PathBuf> {
     let root = root()?;
     fs::create_dir_all(&root)?;
     let archive = root.join("upstream.zip");
@@ -125,6 +125,70 @@ pub fn stop() -> Result<()> {
         }
         Err(error) if error.code().0 as u32 == 0x80070002 => {}
         Err(error) => return Err(error.into()),
+    }
+    Ok(())
+}
+pub fn startup_entry() -> Result<Entry> {
+    Ok(Entry {
+        slot: slot(),
+        value: Some(registry::string(&command()?)),
+    })
+}
+pub fn startup_entries() -> Result<Vec<Entry>> {
+    let mut entries = vec![startup_entry()?];
+    if WindowsRegistry
+        .read(&legacy_slot())?
+        .and_then(|v| registry::as_string(&v))
+        .is_some_and(|s| s == command().unwrap_or_default())
+    {
+        entries.push(Entry {
+            slot: legacy_slot(),
+            value: None,
+        });
+    }
+    Ok(entries)
+}
+pub fn running() -> Result<bool> {
+    let name: Vec<_> = "breeze-shell-inject-consistent-exit"
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    match unsafe { OpenEventW(EVENT_MODIFY_STATE, false, PCWSTR(name.as_ptr())) } {
+        Ok(handle) => {
+            unsafe {
+                let _ = CloseHandle(handle);
+            }
+            Ok(true)
+        }
+        Err(error) if error.code().0 as u32 == 0x80070002 => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+pub fn prepare() -> Result<()> {
+    if unsafe { windows::Win32::UI::Shell::IsUserAnAdmin().as_bool() } {
+        bail!("请以普通权限打开 WinGlow 后一键优化。");
+    }
+    if running()? && !enabled()? {
+        bail!("Breeze 已由其他工具启动，请先退出它再一键优化。");
+    }
+    install()?;
+    Ok(())
+}
+pub fn sync() -> Result<()> {
+    if !enabled()? {
+        return stop();
+    }
+    prepare()?;
+    if running()? {
+        return Ok(());
+    }
+    let mut child = Command::new(exe()?)
+        .arg("inject-consistent")
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()?;
+    std::thread::sleep(Duration::from_millis(350));
+    if let Some(status) = child.try_wait()? {
+        bail!("Breeze 启动失败（{status}）。");
     }
     Ok(())
 }

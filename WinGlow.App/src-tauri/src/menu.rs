@@ -278,6 +278,7 @@ fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> {
                         MenuItem {
                             id: id(&slot.scope, &name),
                             label: friendly(&label),
+                            auto_hide: crate::menu_policy::should_hide(&label, &slot, &key, None),
                             raw_label: label,
                             targets: targets(group),
                             menu_level: if cascading { "cascade" } else { "direct" }.into(),
@@ -361,6 +362,12 @@ fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> {
                         MenuItem {
                             id: id(&slot.scope, &guid),
                             label: extension_label(&label, server.as_ref()),
+                            auto_hide: crate::menu_policy::should_hide(
+                                &label,
+                                &slot,
+                                &key,
+                                server.as_ref(),
+                            ),
                             raw_label: label,
                             targets: targets(group),
                             menu_level: "extension".into(),

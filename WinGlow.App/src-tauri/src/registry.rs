@@ -24,6 +24,9 @@ pub enum Scope {
     BlockedExtensions,
     MachineBlockedExtensions,
     Startup,
+    WindowMetrics,
+    LiveUiFonts,
+    TaskbarConfig,
 }
 
 impl Scope {
@@ -50,6 +53,9 @@ impl Scope {
                 r"Software\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked".into()
             }
             Self::Startup => r"Software\Microsoft\Windows\CurrentVersion\Run".into(),
+            Self::WindowMetrics => r"Control Panel\Desktop\WindowMetrics".into(),
+            Self::TaskbarConfig => String::new(),
+            Self::LiveUiFonts => String::new(), // Virtual slot, handled through native APIs below.
         }
     }
     fn root(&self) -> RegKey {
@@ -184,6 +190,9 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
         ),
         Scope::IconOverrides => matches!(slot.name.as_str(), "29" | "77"),
         Scope::DesktopView => slot.name == "FFlags",
+        Scope::WindowMetrics => crate::ui_fonts::NAMES.contains(&slot.name.as_str()),
+        Scope::LiveUiFonts => slot.name == "Fonts",
+        Scope::TaskbarConfig => slot.name == "settings.json",
         Scope::MenuVerb { path, .. } => {
             crate::menu::valid_verb_path(path) && slot.name == "LegacyDisable"
         }
@@ -193,7 +202,7 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
         // Existing journals must remain restorable after the brand rename.
         Scope::Startup => matches!(
             slot.name.as_str(),
-            "WinGlow-Breeze" | "WindowsWeitiao-Breeze"
+            "WinGlow-Breeze" | "WindowsWeitiao-Breeze" | "WinGlow-TranslucentTB"
         ),
     };
     if !allowed {
@@ -209,6 +218,12 @@ pub fn validate_entries(entries: &[Entry]) -> Result<()> {
     let mut seen = std::collections::BTreeSet::new();
     for entry in entries {
         validate_slot(&entry.slot)?;
+        if entry.slot.scope == Scope::TaskbarConfig {
+            crate::taskbar::validate_config(entry.value.as_ref())?;
+        }
+        if entry.slot.scope == Scope::LiveUiFonts {
+            crate::ui_fonts::validate(entry.value.as_ref())?;
+        }
         if !seen.insert(&entry.slot) {
             bail!("备份存在重复条目。");
         }
@@ -225,6 +240,12 @@ pub struct WindowsRegistry;
 impl ValueStore for WindowsRegistry {
     fn read(&self, slot: &Slot) -> Result<Option<StoredValue>> {
         validate_slot(slot)?;
+        if slot.scope == Scope::TaskbarConfig {
+            return crate::taskbar::read_config();
+        }
+        if slot.scope == Scope::LiveUiFonts {
+            return Ok(Some(crate::ui_fonts::read()?));
+        }
         let key = match slot
             .scope
             .root()
@@ -245,6 +266,17 @@ impl ValueStore for WindowsRegistry {
     }
     fn write(&mut self, entry: &Entry) -> Result<()> {
         validate_entries(std::slice::from_ref(entry))?;
+        if entry.slot.scope == Scope::TaskbarConfig {
+            return crate::taskbar::write_config(entry.value.as_ref());
+        }
+        if entry.slot.scope == Scope::LiveUiFonts {
+            return crate::ui_fonts::write(
+                entry
+                    .value
+                    .as_ref()
+                    .ok_or_else(|| anyhow::anyhow!("界面字体实时快照不能缺失。"))?,
+            );
+        }
         let root = entry.slot.scope.root();
         // Deleting a value from a missing key is already the desired state.
         let key = if entry.value.is_none() {

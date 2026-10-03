@@ -49,3 +49,25 @@ SF Pro + 苹方视频主要展示桌面、时间、资源管理器、开始菜�
 3.1.3 本地版按用户明确要求内置 ACT-02/PingFang-for-Windows 的静态 SC 字体，保留来源、固定提交、哈希及内嵌版权声明，不将下载链接描述成开放字体许可。字体解析、字重、字形和映射由自动检查验证，真实安装与显示仍需实机检查。第三方把内部名称改成 Microsoft YaHei 的替换包仍会被拒绝，以免覆盖系统字体注册信息。
 
 真实 Windows 实测需覆盖 100%、125%、150%、200% 缩放，特别观察资源管理器小字、开始菜单、时间冒号、设置页、中文粗体、括号、1Il/0O、Emoji 和生僻字。普通映射验证通过后，如用户仍需要视频那样的覆盖范围，再独立设计系统文件替换模式及其备份、恢复和系统更新兼容策略。
+
+## 3.1.5：字体变化不明显与 Breeze 的区别
+
+2026-10-03 对开发电脑进行了只读 GDI 查询。虽然全部管理映射识别为 harmonyos-sc，CreateFontW 请求 Segoe UI 或 Microsoft YaHei UI 时，GetTextFaceW 仍分别返回原字体；直接请求 HarmonyOS Sans SC 能找到该族。SPI_GETNONCLIENTMETRICS 与 SPI_GETICONTITLELOGFONT 的六个角色仍是 Microsoft YaHei UI、400，系统 DPI 为 144。结论限于这些查询：名称映射成功不足以证明真实界面正在使用目标字体，用户观察到变化不明显有具体技术依据。
+
+华为的 [HarmonyOS Sans 官方资源页](https://developer.huawei.com/consumer/cn/design/resource-V1/)提供字体包。本版本继续使用已有内置文件，解析实际 Regular 400、Medium 500、Bold 700，用户界面只暴露鸿蒙“标准 / 粗”两档；没有修改原字体轮廓或合成粗体。“更换前”改读原生对话框当前字体与字重，是经典界面的参照，不能代表每一个应用。
+
+审阅固定 Breeze 0.1.34 提交 bec0b6c137f5603bceaf4df7b92200cc90f663da：
+
+- [config.cc](https://github.com/std-microblock/breeze-shell/blob/bec0b6c137f5603bceaf4df7b92200cc90f663da/src/shell/config.cc) 默认主字体直接读取 Windows/Fonts/segoeui.ttf，中文回退直接读取 msyh.ttc，再向 NanoVG 注册字体套件。
+- [menu_widget.cc](https://github.com/std-microblock/breeze-shell/blob/bec0b6c137f5603bceaf4df7b92200cc90f663da/src/shell/contextmenu/menu_widget.cc) 用自己的 fontFace、fontSize、文字位置和间距绘制菜单；不是只替换系统字体名称。此机上游配置没有显式指定上述字体路径，因此按代码推断使用默认资源；没有抓取或注入运行中的菜单来验证实际选中哪个回退字面。
+- 因此漂亮观感同时涉及自绘布局、文字栅格化与文件选择，不能把该菜单的效果归因于“鸿蒙已全局替换成功”，也不能通过单独设置一个字重参数把相同渲染器扩展到所有应用。
+
+| 方式 | 能改善的范围与限制 | 本版本取舍 |
+| --- | --- | --- |
+| 名称映射 | 兼容部分字体选择路径，实际 GDI/DirectWrite 需验证 | 保留作补充，减少把映射当成效果成功的误判 |
+| Windows 原生界面设置 | [SystemParametersInfoW](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-systemparametersinfow) 的 NONCLIENTMETRICS 与图标文字 LOGFONT，针对采用系统角色字体的经典界面 | 新增，与持久字体值一起逐值备份、校验及恢复；不改字号、尺寸或 ClearType |
+| Breeze 自绘 | 对右键菜单可以直接控制字体文件、字号、布局与栅格化；覆盖该菜单范围 | 继续使用独立上游引擎；本版本不接管用户的 Breeze 字体配置 |
+| [FontMod](https://github.com/ysc3839/FontMod) / [MacType](https://github.com/snowie2000/mactype) | 修改程序绘制过程，API/架构/应用兼容性不同，需要注入与进程生命周期管理 | 作为后续独立渲染模块研究，未静默开启全局注入，也未复制实现 |
+| 适配字体文件替换 | 视频中可提高部分硬编码字体的覆盖，但依赖字体适配、系统更新与系统文件保护 | 仍需单独工程及完整恢复验证；本版未覆盖 Windows 系统字体文件 |
+
+原生字体设置改善的是字体选择路径，不代表 NanoVG 渲染器已进入 Windows 所有界面。新版实际应用、还原与各 UI 框架的显示仍需要实机测试。

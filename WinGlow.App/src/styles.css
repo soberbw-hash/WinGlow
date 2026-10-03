@@ -16,6 +16,15 @@
 @font-face { font-family: "PingFang Preview"; src: url("../../FontPackages/pingfang-sc/PingFangSC-Medium.otf"); font-weight: 500; font-display: swap; }
 @font-face { font-family: "PingFang Preview"; src: url("../../FontPackages/pingfang-sc/PingFangSC-Semibold.otf"); font-weight: 600 700; font-display: swap; }
 :root { font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; color: var(--color-slate-900); background: var(--color-slate-50); color-scheme: light; font-synthesis: none; }
+@font-face { font-family: "HarmonyOS Bold Preview"; src: url("../../FontPackages/harmonyos-sc/HarmonyOS_Sans_SC_Bold.ttf"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "HarmonyOS Bold Preview"; src: url("../../FontPackages/harmonyos-sc/HarmonyOS_Sans_SC_Bold.ttf"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "HarmonyOS Bold Preview"; src: url("../../FontPackages/harmonyos-sc/HarmonyOS_Sans_SC_Bold.ttf"); font-weight: 700; font-display: swap; }
+.font-weight-picker { display: flex; gap: 4px; width: fit-content; border: 1px solid var(--brand-line); border-radius: 8px; padding: 3px; margin: -8px 0 24px; }
+.font-weight-option { position: relative; padding: 6px 18px; border-radius: 5px; font-size: 13px; cursor: pointer; color: var(--color-slate-600); }
+.font-weight-option input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: inherit; }
+.font-weight-option.selected { background: var(--brand-wash); color: var(--brand-strong); }
+.font-weight-option:has(input:focus-visible) { outline: 2px solid var(--brand-accent); outline-offset: 2px; }
+.font-weight-picker:disabled { opacity: .5; }
 * { box-sizing: border-box; }
 body { margin: 0; }
 button { cursor: pointer; font: inherit; }
@@ -114,12 +123,14 @@ h1 { font-size: 24px; line-height: 1.35; font-weight: 600; margin-bottom: 24px; 
 @media(forced-colors:active) { .switch span { border: 1px solid ButtonText; } .switch:has(input:checked) { outline: 2px solid Highlight; } }
 @media(max-width:760px) {
   .main-content { padding: 15px 20px; }
-  h1 { margin-bottom: 20px; }
-  .font-sample { min-height: 134px; padding: 16px; }
+  h1 { margin-bottom: 16px; }
+  .font-picker { margin-bottom: 16px; }
+  .font-weight-picker { margin-bottom: 16px; }
+  .font-sample { min-height: 118px; padding: 12px; }
   .sample-heading { margin-bottom: 10px; }
   .sample-paragraph { margin-bottom: 12px; }
   .sample-english { margin-bottom: 0; }
-  .apply-row { margin-top: 20px; }
+  .apply-row { margin-top: 12px; }
 }
 
 .menu-page { display: flex; flex-direction: column; overflow: hidden; padding: 24px 28px 20px; }
@@ -169,3 +180,19 @@ h1 { font-size: 24px; line-height: 1.35; font-weight: 600; margin-bottom: 24px; 
 .menu-page > .notice { margin-top: 12px; max-height: 110px; overflow: auto; flex-shrink: 0; }
 @media(max-width:1000px) { .menu-layout { grid-template-columns: minmax(0, 1fr) 250px; gap: 14px; } .menu-page { padding: 22px 20px 18px; } }
 @media(max-width:800px) { .menu-layout { grid-template-columns: minmax(0, 1fr) 218px; gap: 10px; } .menu-page { padding: 18px 14px; } .menu-row { padding-right: 8px; gap: 4px; } .menu-select { gap: 7px; padding: 9px 8px; } .menu-toolbar select { max-width: 118px; } }
+
+.home-page { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 36px 0; }
+.home-intro { text-align: center; }
+.home-intro img { display: block; margin: 0 auto 24px; }
+.home-intro h1 { font-size: 34px; margin-bottom: 14px; text-wrap: balance; }
+.home-intro p { color: var(--color-slate-600); font-size: 14px; line-height: 1.8; text-wrap: pretty; }
+.home-actions { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 34px; flex-wrap: wrap; }
+.optimize-button { min-width: 216px; min-height: 58px; font-size: 17px; background: var(--brand-accent) !important; }
+.home-restore { min-height: 48px; }
+.home-recovery,.home-support { margin-top: 18px; color: var(--color-slate-600); font-size: 13px; }
+.home-shortcuts { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 56px; }
+.home-shortcuts button { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border: 1px solid var(--brand-line); border-radius: 12px; background: white; font-size: 13px; color: var(--color-slate-700); }
+.home-shortcuts button:hover { border-color: var(--brand-accent); color: var(--brand-strong); }
+.home-shortcuts button:focus-visible { outline: 2px solid var(--brand-accent); outline-offset: 3px; }
+.menu-auto-button { margin-left: auto; min-height: 34px; padding: 6px 12px; }
+@media(max-width:760px) { .home-page { padding: 20px 0; } .home-intro h1 { font-size: 28px; } .home-shortcuts { gap: 8px; margin-top: 38px; } .home-shortcuts button { padding: 12px; gap: 8px; } .menu-page-heading { gap: 8px; } }

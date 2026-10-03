@@ -12,6 +12,7 @@ artifacts/
 dist/
 third_party/
 *.zip
+!third-party/TranslucentTB/TranslucentTB-2026.2-x64.zip
 /WinGlow.exe
 /mscorlib.dll
 /norm*.nlp

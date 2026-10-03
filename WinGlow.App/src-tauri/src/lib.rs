@@ -5,12 +5,16 @@ mod font_engine;
 mod legacy;
 mod menu;
 mod menu_icon;
+mod menu_policy;
 mod models;
+mod optimization;
 mod preset_data;
 mod registry;
 mod repair;
 mod shell_engine;
+mod taskbar;
 mod transaction;
+mod ui_fonts;
 mod worker;
 
 use models::{ActionResult, BootstrapPayload, Operation};
@@ -93,6 +97,27 @@ fn repair_progress() -> Result<models::RepairProgress, String> {
     repair::progress().map_err(|e| format!("{e:#}"))
 }
 
+#[tauri::command]
+async fn optimize_system(restore: bool) -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if restore {
+            optimization::restore()
+        } else {
+            optimization::apply()
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn optimize_menu() -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(|| worker::run(Operation::OptimizeMenu))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if worker::handle_cli() {
@@ -111,7 +136,9 @@ pub fn run() {
             set_menu_item,
             restore_category,
             repair_system,
-            repair_progress
+            repair_progress,
+            optimize_system,
+            optimize_menu
         ])
         .run(tauri::generate_context!())
         .expect("启动 WinGlow失败");

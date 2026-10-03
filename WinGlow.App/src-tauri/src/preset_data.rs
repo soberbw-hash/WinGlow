@@ -35,6 +35,7 @@ pub struct Preset {
     pub family: &'static str,
     pub preview: &'static str,
     pub bundled: bool,
+    pub heavier: bool,
 }
 
 pub const PRESETS: &[Preset] = &[
@@ -44,6 +45,15 @@ pub const PRESETS: &[Preset] = &[
         family: "HarmonyOS Sans SC",
         preview: "HarmonyOS Preview",
         bundled: true,
+        heavier: false,
+    },
+    Preset {
+        id: "harmonyos-sc-bold",
+        label: "HarmonyOS Sans · 粗",
+        family: "HarmonyOS Sans SC",
+        preview: "HarmonyOS Bold Preview",
+        bundled: true,
+        heavier: true,
     },
     Preset {
         id: "source-han-sans-cn",
@@ -51,6 +61,7 @@ pub const PRESETS: &[Preset] = &[
         family: "Source Han Sans CN",
         preview: "Source Han Preview",
         bundled: true,
+        heavier: false,
     },
     Preset {
         id: "pingfang-sc",
@@ -58,6 +69,7 @@ pub const PRESETS: &[Preset] = &[
         family: "PingFang SC",
         preview: "PingFang Preview",
         bundled: true,
+        heavier: false,
     },
 ];
 
@@ -102,6 +114,19 @@ pub fn target_for_alias<'a>(
         regular
     }
 }
+pub fn preset_target<'a>(
+    preset: &Preset,
+    alias: &str,
+    regular: &'a str,
+    medium: &'a str,
+    bold: &'a str,
+) -> &'a str {
+    if preset.heavier {
+        bold
+    } else {
+        target_for_alias(alias, regular, medium, bold)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -121,8 +146,17 @@ mod tests {
         );
     }
     #[test]
-    fn selection_has_three_known_presets() {
-        assert_eq!(PRESETS.len(), 3);
+    fn selection_has_three_families_and_two_harmony_weights() {
+        assert_eq!(PRESETS.len(), 4);
+        assert_eq!(
+            PRESETS
+                .iter()
+                .map(|p| p.family)
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            3
+        );
+        assert!(find_preset("harmonyos-sc-bold").unwrap().heavier);
         assert!(find_preset("vivo").is_err());
         assert!(validate_family(find_preset("pingfang-sc").unwrap(), "Microsoft YaHei").is_err());
     }

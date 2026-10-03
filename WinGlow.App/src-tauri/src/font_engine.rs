@@ -158,7 +158,7 @@ fn stage(bytes: &[u8], extension: &str, preset: &Preset) -> Result<Vec<FontRecor
 
 fn bundled_files(preset: &Preset) -> Result<&'static [(&'static [u8], &'static str)]> {
     let files: &[(&[u8], &str)] = match preset.id {
-        "harmonyos-sc" => &[
+        "harmonyos-sc" | "harmonyos-sc-bold" => &[
             (
                 include_bytes!("../../../FontPackages/harmonyos-sc/HarmonyOS_Sans_SC_Regular.ttf"),
                 "ttf",
@@ -323,7 +323,8 @@ fn plan(preset: &Preset, records: &[FontRecord]) -> Result<Vec<Entry>> {
     for alias in MANAGED_ALIASES {
         entries.push(Entry {
             slot: registry::slot(Scope::Substitutes, *alias),
-            value: Some(registry::string(preset_data::target_for_alias(
+            value: Some(registry::string(preset_data::preset_target(
+                preset,
                 alias,
                 &regular.full_name,
                 &medium.full_name,
@@ -397,20 +398,23 @@ pub(crate) fn notify() {
             1000,
             None,
         );
-        let s = wide("FontSubstitutes");
-        let _ = SendMessageTimeoutW(
-            HWND_BROADCAST,
-            WM_SETTINGCHANGE,
-            WPARAM(0),
-            LPARAM(s.as_ptr() as isize),
-            SMTO_ABORTIFHUNG,
-            1000,
-            None,
-        );
+        for name in ["FontSubstitutes", "WindowMetrics"] {
+            let s = wide(name);
+            let _ = SendMessageTimeoutW(
+                HWND_BROADCAST,
+                WM_SETTINGCHANGE,
+                WPARAM(0),
+                LPARAM(s.as_ptr() as isize),
+                SMTO_ABORTIFHUNG,
+                1000,
+                None,
+            );
+        }
     }
 }
 
 fn matches_preset(
+    preset: &Preset,
     aliases: &std::collections::BTreeMap<&str, Option<String>>,
     records: &[FontRecord],
 ) -> bool {
@@ -419,7 +423,8 @@ fn matches_preset(
     };
     MANAGED_ALIASES.iter().all(|name| {
         aliases.get(name).and_then(|value| value.as_deref())
-            == Some(preset_data::target_for_alias(
+            == Some(preset_data::preset_target(
+                preset,
                 name,
                 &regular.full_name,
                 &medium.full_name,
@@ -449,10 +454,10 @@ pub fn load_bootstrap() -> Result<BootstrapPayload> {
         } else {
             saved_pingfang()
         };
-        records.is_ok_and(|records| matches_preset(&aliases, &records))
+        records.is_ok_and(|records| matches_preset(p, &aliases, &records))
             // Previously imported PingFang faces can have other full names. Retain detection
             // so an upgrade does not lose the active selection or the existing restore data.
-            || (p.id == "pingfang-sc" && saved_pingfang().is_ok_and(|records| matches_preset(&aliases, &records)))
+            || (p.id == "pingfang-sc" && saved_pingfang().is_ok_and(|records| matches_preset(p, &aliases, &records)))
     });
     let label = active.map(|p| p.label.to_string()).unwrap_or_else(|| {
         if cn == "Microsoft YaHei UI" && en == "Segoe UI" {
@@ -461,12 +466,16 @@ pub fn load_bootstrap() -> Result<BootstrapPayload> {
             format!("{en} / {cn}")
         }
     });
-    let family = if let Some(p) = active {
+    let native_preview = crate::ui_fonts::current_message_font()?;
+    let native_preset = PRESETS
+        .iter()
+        .find(|p| p.family == native_preview.0 && !p.heavier);
+    let family = if let Some(p) = native_preset {
         format!("\"{}\", \"Microsoft YaHei UI\", sans-serif", p.preview)
     } else {
         format!(
             "{}, {}, sans-serif",
-            serde_json::to_string(&en)?,
+            serde_json::to_string(&native_preview.0)?,
             serde_json::to_string(&cn)?
         )
     };
@@ -483,6 +492,10 @@ pub fn load_bootstrap() -> Result<BootstrapPayload> {
         active_preset_id: active.map(|p| p.id.into()),
         active_font_label: label,
         current_preview_family: family,
+        current_preview_weight: native_preview.1,
+        needs_font_refresh: active.is_some_and(|p| {
+            !crate::ui_fonts::matches_current(p.family, p.heavier).unwrap_or(false)
+        }),
         backup_dir: root.to_string_lossy().into(),
         can_restore: dirs
             .iter()
@@ -512,32 +525,7 @@ pub fn perform(operation: Operation) -> Result<ActionResult> {
             if !paths.is_empty() {
                 bail!("请先导入并预览字体，再点击应用。");
             }
-            let preset = preset_data::find_preset(&preset_id)?;
-            let records = if preset.bundled {
-                bundled_records(preset)?
-            } else {
-                saved_pingfang()?
-            };
-            let desired = plan(preset, &records)?;
-            let mut added = Vec::new();
-            let result = transaction::execute(
-                &mut store,
-                &new_backup_dir()?,
-                &format!("apply:{preset_id}"),
-                desired,
-                || {
-                    added = activate(&records)?;
-                    Ok(())
-                },
-            );
-            if result.is_err() {
-                deactivate(&added);
-            }
-            notify();
-            result?;
-            Ok(ActionResult {
-                message: "已应用。重新打开应用查看效果；部分界面需要注销后生效。".into(),
-            })
+            apply_with_extra(&preset_id, Vec::new(), &format!("apply:{preset_id}"))
         }
         Operation::Import { paths } => {
             let records = imported_records(&paths)?;
@@ -607,7 +595,11 @@ pub fn perform(operation: Operation) -> Result<ActionResult> {
                     for entry in journal.before {
                         if matches!(
                             entry.slot.scope,
-                            Scope::Links | Scope::Desktop | Scope::Avalon(_)
+                            Scope::Links
+                                | Scope::Desktop
+                                | Scope::Avalon(_)
+                                | Scope::WindowMetrics
+                                | Scope::LiveUiFonts
                         ) {
                             originals.entry(entry.slot.clone()).or_insert(entry);
                         }
@@ -660,6 +652,8 @@ pub fn perform(operation: Operation) -> Result<ActionResult> {
                                         | Scope::UserSystemFonts
                                         | Scope::Desktop
                                         | Scope::Avalon(_)
+                                        | Scope::WindowMetrics
+                                        | Scope::LiveUiFonts
                                 )
                             })
                         })
@@ -714,6 +708,36 @@ fn unique_entries(entries: Vec<Entry>) -> Vec<Entry> {
         .collect()
 }
 
+pub fn apply_with_extra(
+    preset_id: &str,
+    extra: Vec<Entry>,
+    operation: &str,
+) -> Result<ActionResult> {
+    let mut store = WindowsRegistry;
+    let preset = preset_data::find_preset(preset_id)?;
+    let records = if preset.bundled {
+        bundled_records(preset)?
+    } else {
+        saved_pingfang()?
+    };
+    let mut desired = plan(preset, &records)?;
+    desired.extend(extra);
+    desired.extend(crate::ui_fonts::plan(preset.family, preset.heavier)?);
+    let mut added = Vec::new();
+    let result = transaction::execute(&mut store, &new_backup_dir()?, operation, desired, || {
+        added = activate(&records)?;
+        Ok(())
+    });
+    if result.is_err() {
+        deactivate(&added);
+    }
+    notify();
+    result?;
+    Ok(ActionResult {
+        message: "已应用。重新打开应用查看效果；部分界面需要注销后生效。".into(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -730,6 +754,51 @@ mod tests {
         registry::validate_entries(&entries).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].value, None);
+    }
+    #[test]
+    fn harmony_standard_and_bold_have_distinct_real_mappings() {
+        let standard = preset_data::find_preset("harmonyos-sc").unwrap();
+        let heavier = preset_data::find_preset("harmonyos-sc-bold").unwrap();
+        let records = bundled_metadata(standard).unwrap();
+        let mappings = |preset: &Preset| {
+            MANAGED_ALIASES
+                .iter()
+                .map(|alias| {
+                    let (regular, medium, bold) = weight_faces(&records).unwrap();
+                    (
+                        *alias,
+                        Some(
+                            preset_data::preset_target(
+                                preset,
+                                alias,
+                                &regular.full_name,
+                                &medium.full_name,
+                                &bold.full_name,
+                            )
+                            .to_string(),
+                        ),
+                    )
+                })
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        let normal = mappings(standard);
+        let bold = mappings(heavier);
+        assert_eq!(
+            normal["Microsoft YaHei UI"].as_deref(),
+            Some("HarmonyOS Sans SC")
+        );
+        assert_eq!(
+            bold["Microsoft YaHei UI"].as_deref(),
+            Some("HarmonyOS Sans SC Bold")
+        );
+        assert!(
+            bold.values()
+                .all(|v| v.as_deref() == Some("HarmonyOS Sans SC Bold"))
+        );
+        assert!(matches_preset(standard, &normal, &records));
+        assert!(!matches_preset(heavier, &normal, &records));
+        assert!(matches_preset(heavier, &bold, &records));
+        assert!(!matches_preset(standard, &bold, &records));
     }
     #[test]
     fn bundled_fonts_have_real_regular_medium_bold_and_common_glyphs() {
@@ -766,13 +835,21 @@ mod tests {
                 )
             })
             .collect::<std::collections::BTreeMap<_, _>>();
-        assert!(matches_preset(&aliases, &records));
+        assert!(matches_preset(
+            preset_data::find_preset("pingfang-sc").unwrap(),
+            &aliases,
+            &records
+        ));
         assert_eq!(
             aliases["Microsoft YaHei UI Bold"].as_deref(),
             Some("PingFang SC Semibold")
         );
         aliases.insert("Segoe UI", Some("Segoe UI".into()));
-        assert!(!matches_preset(&aliases, &records));
+        assert!(!matches_preset(
+            preset_data::find_preset("pingfang-sc").unwrap(),
+            &aliases,
+            &records
+        ));
     }
     #[test]
     fn rejects_invalid_and_misidentified_fonts() {

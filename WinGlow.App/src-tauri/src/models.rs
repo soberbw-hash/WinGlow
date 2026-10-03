@@ -16,6 +16,8 @@ pub struct BootstrapPayload {
     pub active_preset_id: Option<String>,
     pub active_font_label: String,
     pub current_preview_family: String,
+    pub current_preview_weight: u16,
+    pub needs_font_refresh: bool,
     pub backup_dir: String,
     pub can_restore: bool,
     pub pending_recovery: Option<String>,
@@ -50,6 +52,13 @@ pub enum Operation {
     RestoreCategory {
         category: String,
     },
+    OptimizeCore {
+        token: String,
+    },
+    UndoOptimization {
+        token: String,
+    },
+    OptimizeMenu,
     Repair,
 }
 
@@ -70,6 +79,7 @@ pub struct MenuItem {
     pub enabled: bool,
     pub kind: String,
     pub raw_label: String,
+    pub auto_hide: bool,
     pub targets: Vec<String>,
     pub menu_level: String,
     pub children: Vec<String>,
@@ -83,6 +93,10 @@ pub struct ShellState {
     pub items: Vec<MenuItem>,
     pub tweaks: Vec<ToggleState>,
     pub breeze_enabled: bool,
+    pub taskbar_enabled: bool,
+    pub taskbar_supported: bool,
+    pub optimization_active: bool,
+    pub optimization_pending: bool,
     pub pending_recovery: bool,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

@@ -12,6 +12,7 @@ Rust stable，edition 2024，最低 1.88；Tauri 2.12.1 稳定版、React 19.3�
 
 - `src/App.tsx`：字体选择、前后预览、功能导航及恢复页。
 - `src-tauri/src/font_engine.rs`：字体解析、资源准备、应用计划和状态读取。
+- `ui_fonts.rs`：六种经典界面的实时字体与持久化 WindowMetrics 字体，系统 DPI 上下文与字号保留。
 - `registry.rs`：限定可写注册表位置，保留原始数据类型与字节。
 - `transaction.rs`：不可变前后快照、写入验证、提交标记和回退。
 - `worker.rs`：管理员 helper、跨进程互斥、结果回传与 Shift 急救。
@@ -32,6 +33,10 @@ Rust stable，edition 2024，最低 1.88；Tauri 2.12.1 稳定版、React 19.3�
 WinGlow 改名保留四类兼容记录：旧用户数据目录、原应用 identifier、与旧版共享的互斥名称、旧 WindowsWeitiao-Breeze 注册值白名单。新启动项使用 WinGlow-Breeze，检测和关闭支持旧项；历史发行记录和已发布资源文件名保留原名，不能将旧链接改成不存在的资源。
 
 浏览器模式只能查看界面，应用按钮禁用，不模拟 Windows 写入成功。
+
+3.1.5 保留三种字体族，鸿蒙包含兼容原 ID 的标准方案 harmonyos-sc 和新增 harmonyos-sc-bold。粗方案让正文使用真实 Bold 700，预览通过原 Bold 文件单独的 CSS 族提供，避免伪加粗。标准保留 Regular/Medium/Bold 层级映射。当前预览的字体与字重读取 Windows 实时 MessageFont，不再仅由 FontSubstitutes 推断显示效果；needsFontRefresh 检查六种实时角色的族与字重，旧映射已应用但原生设置缺失时，允许同方案再次应用。
+
+应用计划增加六个固定 WindowMetrics 字体值和一个 LiveUiFonts 虚拟值。持久值保留原类型、字节与不存在状态；虚拟值通过 SPI_GET 读取六种 LOGFONT 与系统 DPI，在同一事务中通过 SPI_SET 更新。SPI_SET 不使用 SPIF_UPDATEINIFILE，持久化由已有逐值事务控制，避免回退时把原本不存在的值重新创建。仅调整字体族与字重，字号、质量标记、窗口和菜单尺寸不作为美化参数修改；持久 LOGFONT 按 96 DPI 编码，实时快照保留原 DPI 下的精确值，写入时使用 System-aware 线程上下文。任何写入、激活或提交失败，同一事务回退实时值与持久值；普通默认恢复、最近修改撤销及字体修复会包含这些字体范围。不同 DPI 下恢复会换算字体高度，若回读不一致则明确报告，不伪装成成功。诊断 --diagnose-ui-fonts 仅查询，不设置。
 
 3.1.4 菜单扫描新增固定文件类型白名单；修改路径沿用同一白名单，不开放任意注册表路径。菜单 ID 与备份位置兼容旧版，按 CLSID 合并扩展的作用位置，保留一个全局开关。读取嵌套 shell 和 CommandStore 的静态二级菜单；动态菜单不臆造内部项目。菜单名称解析系统资源及常见友好名称，原名收在详情中；图标来源区分菜单图标与程序图标。已知位置按文件类型继承公共菜单，不等于全部关联类型的完整枚举，也不等于某个文件的实际弹出菜单。
 
@@ -64,3 +69,13 @@ npm run tauri build -- --bundles nsis
 `scripts/Build-ModernPackages.ps1` 运行这些检查并生成安装包、便携包和 SHA-256 清单。公开发布前先完成 [字体实测](font-research.md) 中的真实系统检查；本地构建成功不能代表已发布。
 
 自动测试使用内存注册表后端和隔离的原生 HKCU 临时测试键，注入写入失败、激活失败、备份失败及无声写入丢失；不会更改开发电脑的字体。另检查九个内置字体的字重/常用字形和旧版 REG 解析。系统字体实测单独记录，不能用浏览器截图代替。苹方内置检查见 verification-3.1.3.md，事务检查的详细边界见 verification-3.1.0.md。
+
+## 3.2.0 一键优化
+
+optimization.rs 以一个 OptimizeCore 注册/实时字体事务管理字体、菜单和两个引擎自启。父进程先准备资源，保存 one-click-session.json；核心写入后以普通权限启动引擎，最后写完成标记。失败尝试撤销指定 UUID 对应的核心快照，不用“最新记录”猜测目标。恢复未完成保留会话；重新打开可继续恢复。进程启动成功只代表保持运行，不证明真实渲染效果。
+
+taskbar.rs 使用固定 SHA-256 的官方 TranslucentTB 2026.2 zip，逐一释放白名单八文件，原文件存在时逐字节校验。TaskbarConfig 是只访问本工具独立 settings.json 的虚拟备份范围，准确保存不存在状态与原字节。版本信息读取识别 Windows 11；进程枚举核对完整 EXE 路径，拒绝接管其他实例；正常关闭仅向本工具实例窗口发送 WM_CLOSE，并等待退出，不按进程名强杀。启动与恢复运行态在普通父进程执行。分类还原与最近撤销需要同步该用户运行态。
+
+menu_policy.rs 读取 command/CLSID InprocServer32 来源、文件版本 CompanyName 或已识别产品，保留系统路径、Microsoft、核心/安全入口与未知用途。版本厂商不是签名可信度验证；策略是可解释的确定性规则，不宣传 AI，也不为了达到固定 90% 而关闭未知项。批量写入是一笔可还原事务。autoHide 仅为当前扫描建议，详情折叠展示。
+
+本轮功能必须验证：核心失败、引擎激活失败、完成标记失败、回退失败，文件原字节与不存在状态恢复，以及“已优化/撤销/继续恢复”UI。Windows 原生 SPI SET、引擎启动/退出和真实应用后还原另做实机验证，浏览器预览不执行主机修改。

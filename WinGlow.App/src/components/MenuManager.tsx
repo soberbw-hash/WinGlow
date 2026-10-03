@@ -53,7 +53,7 @@ export function MenuManager({ items, disabled, loading, onRefresh, onToggle }: {
         <p className="menu-preview-note">开关效果示意。Windows 11 部分项目在“显示更多选项”中。</p>
         {selected.visibilityNote && <p className="menu-detail-explanation">{selected.visibilityNote}</p>}
         {selected.menuLevel === "extension" ? <p className="menu-detail-explanation">这是程序提供的一组扩展菜单。关闭会隐藏该扩展在多个位置提供的菜单；内部子项由程序动态生成，无法仅从注册表确定。</p> : selected.menuLevel === "cascade" ? <div className="menu-detail-explanation"><p>关闭会隐藏整个入口和它下面的二级菜单。</p>{selected.children.length > 0 ? <><h3>下面的二级菜单</h3><ul>{selected.children.map((label, index) => <li key={`${index}-${label}`}>{label}</li>)}</ul></> : <p>子项由程序动态生成，需在实际右键菜单中查看。</p>}</div> : <p className="menu-detail-explanation">关闭后，这个直接显示的菜单项会消失。</p>}
-        <details className="menu-source"><summary>原始名称与范围</summary><p>{selected.rawLabel}</p><p>{selected.kind} · {levelLabel(selected)}</p>{selected.iconSource && <p>图标：{selected.iconSource}</p>}</details>
+        <details className="menu-source"><summary>原始名称与范围</summary><p>{selected.rawLabel}</p><p>{selected.autoHide ? "自动精简：隐藏这个附加菜单" : "自动精简：保留这个菜单"}</p><p>{selected.kind} · {levelLabel(selected)}</p>{selected.iconSource && <p>图标：{selected.iconSource}</p>}</details>
       </aside>}
     </div>
   </div>;

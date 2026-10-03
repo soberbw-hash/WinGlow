@@ -34,6 +34,8 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $licenses 'APP-LICENSE.txt') -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\Breeze-AGPL-3.0.txt') -Destination $licenses -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\TranslucentTB-GPL-3.0.md') -Destination $licenses -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'third-party\TranslucentTB\SOURCE.md') -Destination (Join-Path $licenses 'TranslucentTB-SOURCE.md') -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\THIRD-PARTY.txt') -Destination $licenses -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'FontPackages\pingfang-sc\NOTICE.txt') -Destination (Join-Path $licenses 'PingFang-NOTICE.txt') -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'FontPackages\pingfang-sc\SOURCE.txt') -Destination (Join-Path $licenses 'PingFang-SOURCE.txt') -Force

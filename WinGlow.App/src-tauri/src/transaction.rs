@@ -265,6 +265,62 @@ mod tests {
         fs::remove_dir_all(d).unwrap();
     }
     #[test]
+    fn one_click_settings_restore_config_absence_and_menu_bytes_together() {
+        let desired = vec![
+            Entry {
+                slot: slot(Scope::TaskbarConfig, "settings.json"),
+                value: Some(StoredValue {
+                    kind: 3,
+                    bytes: b"{\"desktop_appearance\":{\"accent\":\"clear\"}}".to_vec(),
+                }),
+            },
+            Entry {
+                slot: slot(Scope::Startup, "WinGlow-TranslucentTB"),
+                value: Some(string("owned taskbar")),
+            },
+            Entry {
+                slot: slot(Scope::Startup, "WinGlow-Breeze"),
+                value: Some(string("owned breeze")),
+            },
+            Entry {
+                slot: slot(
+                    Scope::MenuVerb {
+                        machine: false,
+                        path: "Directory\\Background\\shell\\GitHere".into(),
+                    },
+                    "LegacyDisable",
+                ),
+                value: Some(string("")),
+            },
+        ];
+        for fail in [false, true] {
+            let mut store = Fake::default();
+            store
+                .values
+                .insert(desired[3].slot.clone(), string("original menu bytes"));
+            let original = store.values.clone();
+            let d = dir();
+            let result = execute(&mut store, &d, "optimize:test", desired.clone(), || {
+                if fail {
+                    bail!("activation failed")
+                } else {
+                    Ok(())
+                }
+            });
+            if fail {
+                assert!(result.is_err());
+                assert!(d.join("rolled-back").exists());
+            } else {
+                assert!(result.is_ok());
+                let journal = read_journal(&d).unwrap();
+                write_and_verify(&mut store, &journal.before).unwrap();
+            }
+            assert_eq!(store.values, original);
+            assert!(store.read(&desired[0].slot).unwrap().is_none());
+            fs::remove_dir_all(d).unwrap();
+        }
+    }
+    #[test]
     fn verification_catches_silently_ignored_write() {
         let d = dir();
         let mut s = Fake {
@@ -277,6 +333,61 @@ mod tests {
     }
 
     // Exercise real Win32 registry byte/type semantics in an isolated disposable hive.
+    #[test]
+    fn native_ui_fonts_and_persistent_values_restore_together() {
+        // Use a memory store: no SPI_SET calls or system-font writes on the test machine.
+        let live_slot = slot(Scope::LiveUiFonts, "Fonts");
+        let live_before = crate::ui_fonts::read().unwrap();
+        let mut desired = crate::ui_fonts::plan("HarmonyOS Sans SC", true).unwrap();
+        // Put the live update before the last failing write to exercise combined rollback.
+        let live = desired.pop().unwrap();
+        desired.insert(0, live);
+        for fail in [false, true] {
+            let mut store = Fake::default();
+            store.values.insert(live_slot.clone(), live_before.clone());
+            store.values.insert(
+                slot(Scope::WindowMetrics, "MenuFont"),
+                string("original type and bytes"),
+            );
+            let original = store.values.clone();
+            store.fail_at = fail.then_some(3);
+            let d = dir();
+            let result = execute(
+                &mut store,
+                &d,
+                "apply:harmonyos-sc-bold",
+                desired.clone(),
+                || Ok(()),
+            );
+            let journal = read_journal(&d).unwrap();
+            assert!(
+                journal
+                    .before
+                    .iter()
+                    .any(|e| e.slot.scope == Scope::WindowMetrics && e.value.is_none())
+            );
+            assert_eq!(
+                journal
+                    .before
+                    .iter()
+                    .find(|e| e.slot == live_slot)
+                    .unwrap()
+                    .value,
+                Some(live_before.clone())
+            );
+            if fail {
+                assert!(result.is_err());
+                assert!(d.join("rolled-back").exists());
+            } else {
+                result.unwrap();
+                write_and_verify(&mut store, &journal.before).unwrap();
+                assert!(d.join("committed").exists());
+            }
+            assert_eq!(store.values, original);
+            fs::remove_dir_all(d).unwrap();
+        }
+    }
+
     // This test never writes the production font or Explorer keys.
     struct IsolatedRegistry {
         key: winreg::RegKey,

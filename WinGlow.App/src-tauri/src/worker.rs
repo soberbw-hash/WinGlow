@@ -37,8 +37,14 @@ impl Drop for OperationLock {
     }
 }
 pub(crate) fn lock() -> Result<OperationLock> {
+    lock_named("Global\\WindowsWeitiaoFontTransaction")
+}
+pub(crate) fn optimization_lock() -> Result<OperationLock> {
+    lock_named("Global\\WinGlowOptimization")
+}
+fn lock_named(mutex_name: &str) -> Result<OperationLock> {
     // Shared with previous builds so old and renamed clients cannot write concurrently.
-    let name = wide("Global\\WindowsWeitiaoFontTransaction");
+    let name = wide(mutex_name);
     let handle = unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) }?;
     let wait = unsafe { WaitForSingleObject(handle, 0) };
     if wait != WAIT_OBJECT_0 && wait != WAIT_ABANDONED {
@@ -119,14 +125,25 @@ fn request_dir(nonce: &str) -> Result<std::path::PathBuf> {
 }
 
 pub fn run(operation: Operation) -> Result<ActionResult> {
+    let _optimization_guard = optimization_lock()?;
     let refresh = crate::explorer::needed(&operation);
-    crate::explorer::finish(run_inner(operation), refresh, || {
+    let sync_taskbar = matches!(&operation, Operation::RestoreCategory {category} if category == "details" || category == "all-last");
+    let mut outcome = run_inner(operation);
+    if sync_taskbar
+        && let Ok(result) = &mut outcome
+        && let Err(error) = crate::taskbar::sync()
+    {
+        result
+            .message
+            .push_str(&format!(" 透明任务栏刷新未完成：{error:#}。"));
+    }
+    crate::explorer::finish(outcome, refresh, || {
         let _guard = lock()?;
         crate::explorer::restart()
     })
 }
 
-fn run_inner(operation: Operation) -> Result<ActionResult> {
+pub(crate) fn run_inner(operation: Operation) -> Result<ActionResult> {
     let needs_admin = match &operation {
         Operation::Toggle { .. } => false,
         Operation::Menu { id, .. } => crate::menu::needs_admin(id)?,
@@ -205,6 +222,9 @@ fn dispatch(operation: Operation) -> Result<ActionResult> {
                 crate::shell_engine::restore(&category)
             }
         }
+        Operation::OptimizeCore { token } => crate::optimization::core(&token),
+        Operation::UndoOptimization { token } => crate::optimization::undo_core(&token),
+        Operation::OptimizeMenu => crate::optimization::menu_only(),
         Operation::Repair => crate::repair::run(),
         font_operation => font_engine::perform(font_operation),
     }
@@ -250,6 +270,16 @@ pub fn handle_cli() -> bool {
     }
     if args.iter().any(|a| a == "--diagnose-shell") {
         match crate::shell_engine::load() {
+            Ok(data) => println!(
+                "{}",
+                serde_json::to_string_pretty(&data).unwrap_or_default()
+            ),
+            Err(e) => eprintln!("{e:#}"),
+        };
+        return true;
+    }
+    if args.iter().any(|a| a == "--diagnose-ui-fonts") {
+        match crate::ui_fonts::diagnostics() {
             Ok(data) => println!(
                 "{}",
                 serde_json::to_string_pretty(&data).unwrap_or_default()
