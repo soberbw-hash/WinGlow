@@ -118,12 +118,26 @@ async fn optimize_menu() -> Result<ActionResult, String> {
         .map_err(|e| format!("{e:#}"))
 }
 
+#[tauri::command]
+async fn open_backup(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = font_engine::backup_root().map_err(|e| format!("无法定位备份：{e:#}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("无法打开备份目录：{e}"))?;
+    app.opener()
+        .open_path(dir.to_string_lossy().into_owned(), None::<&str>)
+        .map_err(|e| format!("无法打开备份文件夹：{e}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if worker::handle_cli() {
         return;
     }
     tauri::Builder::default()
+        .setup(|_| {
+            explorer::watch_shell();
+            Ok(())
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -138,7 +152,8 @@ pub fn run() {
             repair_system,
             repair_progress,
             optimize_system,
-            optimize_menu
+            optimize_menu,
+            open_backup
         ])
         .run(tauri::generate_context!())
         .expect("启动 WinGlow失败");

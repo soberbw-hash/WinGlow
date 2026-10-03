@@ -102,7 +102,6 @@ pub fn load() -> Result<ShellState> {
             "隐藏盾牌角标",
             Some("实验功能，部分 Windows 版本可能不生效。"),
         ),
-        ("desktop-labels", "隐藏桌面图标文字", None),
         ("desktop-icons", "隐藏桌面图标", None),
         ("file-extensions", "显示文件扩展名", None),
     ] {

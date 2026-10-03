@@ -34,7 +34,8 @@ pub fn needed(operation: &Operation) -> bool {
     matches!(
         operation,
         Operation::Apply { .. } | Operation::Restore { .. }
-    ) || matches!(operation, Operation::RestoreCategory { category } if category == "all-last")
+    ) || matches!(operation, Operation::RestoreCategory { category } if category == "all-last" || category == "details")
+        || matches!(operation, Operation::Toggle { id, .. } if id == "file-extensions")
 }
 
 // Refresh is outside the registry transaction and outside the elevated worker.
@@ -189,7 +190,7 @@ fn prepare(executable: &std::path::Path, shell: HANDLE) -> Result<Prepared> {
     })
 }
 
-pub fn restart() -> Result<()> {
+fn restart_shell() -> Result<()> {
     let old_pid = shell_pid().context("未找到当前桌面的资源管理器")?;
     same_session(old_pid)?;
     let executable = explorer_path()?;
@@ -232,10 +233,119 @@ pub fn restart() -> Result<()> {
     bail!("未能确认桌面已恢复")
 }
 
+static OBSERVED_SHELL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+fn finish_runtime(refresh: Result<()>, recover: impl FnOnce() -> Result<()>) -> Result<()> {
+    let recovery = recover();
+    match (refresh, recovery) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(error)) => Err(error.context("桌面已刷新，美化组件恢复未完成")),
+        (Err(error), Err(recovery)) => bail!("{error:#}；美化组件恢复未完成：{recovery:#}"),
+    }
+}
+fn recover_effects() -> Result<()> {
+    let taskbar = (|| {
+        if crate::taskbar::enabled()? {
+            // Rebind the owned hooks to the replacement Explorer, retaining exact config.
+            crate::taskbar::reload_owned()?;
+        }
+        Ok(())
+    })();
+    let breeze = (|| {
+        if crate::breeze::enabled()? {
+            crate::breeze::sync()?;
+        }
+        Ok(())
+    })();
+    finish_runtime(taskbar, || breeze)
+}
+pub fn restart() -> Result<()> {
+    let result = restart_shell();
+    OBSERVED_SHELL.store(
+        shell_pid().unwrap_or(0),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    finish_runtime(result, recover_effects)
+}
+pub fn watch_shell() {
+    OBSERVED_SHELL.store(
+        shell_pid().unwrap_or(0),
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    thread::spawn(|| {
+        let mut retry_pid = 0;
+        let mut attempts = 0;
+        loop {
+            thread::sleep(Duration::from_secs(2));
+            let Some(pid) = shell_pid() else {
+                continue;
+            };
+            if OBSERVED_SHELL.load(std::sync::atomic::Ordering::Relaxed) == pid {
+                continue;
+            }
+            let Ok(_guard) = crate::worker::optimization_lock() else {
+                continue;
+            };
+            if OBSERVED_SHELL.load(std::sync::atomic::Ordering::Relaxed) == pid {
+                continue;
+            }
+            if crate::shell_engine::ensure_ready().is_err()
+                || !matches!(crate::optimization::state(), Ok((_, false)))
+            {
+                continue;
+            }
+            if retry_pid != pid {
+                retry_pid = pid;
+                attempts = 0;
+            }
+            match recover_effects() {
+                Ok(()) => {
+                    OBSERVED_SHELL.store(pid, std::sync::atomic::Ordering::Relaxed);
+                }
+                Err(error) => {
+                    attempts += 1;
+                    if attempts >= 3 {
+                        OBSERVED_SHELL.store(pid, std::sync::atomic::Ordering::Relaxed);
+                        eprintln!("美化组件恢复未完成：{error:#}");
+                    }
+                }
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn extension_switch_and_details_restore_refresh_but_label_switch_does_not() {
+        assert!(needed(&Operation::Toggle {
+            id: "file-extensions".into(),
+            enabled: true
+        }));
+        assert!(needed(&Operation::RestoreCategory {
+            category: "details".into()
+        }));
+        assert!(!needed(&Operation::Toggle {
+            id: "desktop-labels".into(),
+            enabled: true
+        }));
+    }
+    #[test]
+    fn runtime_recovery_runs_even_after_a_shell_error_and_reports_both_failures() {
+        let mut recovered = false;
+        let error = finish_runtime(Err(anyhow::anyhow!("shell failure")), || {
+            recovered = true;
+            bail!("runtime failure")
+        })
+        .unwrap_err()
+        .to_string();
+        assert!(recovered && error.contains("shell failure") && error.contains("runtime failure"));
+        assert!(finish_runtime(Ok(()), || Ok(())).is_ok());
+        assert!(finish_runtime(Ok(()), || bail!("runtime failure")).is_err());
+    }
     #[test]
     fn failed_mutation_never_restarts_shell() {
         let result = finish(Err(anyhow::anyhow!("write failed")), true, || {

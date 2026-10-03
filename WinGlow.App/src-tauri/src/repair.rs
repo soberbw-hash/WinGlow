@@ -120,6 +120,28 @@ fn run_tool(name: &str, args: &[&str], dir: &std::path::Path) -> Result<i32> {
     Ok(code)
 }
 pub fn run() -> Result<ActionResult> {
+    // Save managed settings before DISM/SFC starts. Windows repaired files are not a system image backup.
+    use crate::registry::{self, Scope, WindowsRegistry};
+    let mut slots = std::collections::BTreeSet::new();
+    for name in crate::preset_data::MANAGED_ALIASES {
+        slots.insert(registry::slot(Scope::Substitutes, *name));
+        slots.insert(registry::slot(Scope::Links, *name));
+    }
+    for name in crate::ui_fonts::NAMES {
+        slots.insert(registry::slot(Scope::WindowMetrics, name));
+    }
+    slots.insert(registry::slot(Scope::LiveUiFonts, "Fonts"));
+    for dir in transaction::backup_directories(&font_engine::backup_root()?)? {
+        if let Ok(journal) = transaction::read_journal(&dir) {
+            slots.extend(journal.before.into_iter().map(|e| e.slot));
+        }
+    }
+    transaction::checkpoint(
+        &WindowsRegistry,
+        &font_engine::new_backup_dir()?,
+        "repair:checkpoint",
+        slots.into_iter().collect(),
+    )?;
     let dir = font_engine::data_root()?.join("RepairLogs").join(format!(
         "{}-{}",
         chrono::Utc::now().format("%Y%m%dT%H%M%SZ"),

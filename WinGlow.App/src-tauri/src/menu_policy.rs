@@ -102,6 +102,27 @@ fn confirmed_third_party(name: &str, source: &str) -> bool {
     if [
         "defender",
         "windows defender",
+        "bitlocker",
+        "解锁驱动器",
+        "encrypt-bde",
+        "manage-bde",
+        "windows media player",
+        "wmplayer",
+        "playwithwmplayer",
+        "enqueue",
+        "asus",
+        "华硕",
+        "armoury",
+        "todesk",
+        "to disk",
+        "todisk",
+        "nvidia",
+        "nvui.dll",
+        "英伟达",
+        "doubao",
+        "豆包",
+        "chatgpt",
+        "open project in gpt",
         "baidu",
         "百度网盘",
         "quark",
@@ -218,7 +239,7 @@ pub fn should_hide(name: &str, slot: &Slot, key: &RegKey, server: Option<&RegKey
     .unwrap_or_default();
     confirmed_third_party(&format!("{name} {}", slot.scope.path()), &source)
 }
-pub fn plan() -> Result<Vec<Entry>> {
+fn plan_from(items: Vec<(crate::models::MenuItem, Slot)>) -> Vec<Entry> {
     fn collect(
         item: &crate::models::MenuItem,
         slots: &std::collections::BTreeMap<String, Slot>,
@@ -243,7 +264,6 @@ pub fn plan() -> Result<Vec<Entry>> {
             }
         }
     }
-    let items = menu::scan_impl(false)?;
     let slots = items
         .iter()
         .map(|(item, slot)| (item.id.clone(), slot.clone()))
@@ -252,11 +272,64 @@ pub fn plan() -> Result<Vec<Entry>> {
     for (item, _) in items.iter().filter(|(item, _)| item.kind != "子菜单") {
         collect(item, &slots, &mut entries);
     }
-    Ok(entries.into_values().collect())
+    entries.into_values().collect()
+}
+pub fn plan() -> Result<Vec<Entry>> {
+    Ok(plan_from(menu::scan_impl(false)?))
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cleanup_only_subtracts_and_is_idempotent_after_manual_hiding() {
+        fn item(id: &str, enabled: bool, hide: bool) -> crate::models::MenuItem {
+            crate::models::MenuItem {
+                id: id.into(),
+                enabled,
+                auto_hide: hide,
+                label: id.into(),
+                raw_label: id.into(),
+                group: "文件夹".into(),
+                kind: "当前用户".into(),
+                targets: vec!["文件夹".into()],
+                menu_level: "direct".into(),
+                children: vec![],
+                sub_items: vec![],
+                visibility_note: None,
+                icon_data_url: None,
+                icon_source: None,
+            }
+        }
+        let slot = |name: &str| {
+            registry::slot(
+                Scope::MenuVerb {
+                    machine: false,
+                    path: format!("Directory\\shell\\{name}"),
+                },
+                "LegacyDisable",
+            )
+        };
+        let mut parent = item("parent", false, true);
+        parent.sub_items.push(item("child", true, true));
+        let items = vec![
+            (item("manual", false, true), slot("manual")),
+            (item("new", true, true), slot("new")),
+            (item("essential", true, false), slot("essential")),
+            (parent, slot("parent")),
+        ];
+        let result = plan_from(items.clone());
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].slot, slot("new"));
+        assert!(result.iter().all(|e| e.value == Some(registry::string(""))));
+        let mut after = items;
+        after
+            .iter_mut()
+            .find(|(i, _)| i.id == "new")
+            .unwrap()
+            .0
+            .enabled = false;
+        assert!(plan_from(after).is_empty());
+    }
     #[test]
     fn explicitly_requested_clutter_is_hidden_even_without_publisher_metadata() {
         for label in [
@@ -266,6 +339,15 @@ mod tests {
             "用 WorkBuddy 打开",
             "沃克巴迪",
             "图片转 PDF",
+            "解锁驱动器",
+            "启用 BitLocker",
+            "使用旧版 Windows Media Player 播放",
+            "ArmouryCrate",
+            "ASUS",
+            "使用 ToDesk 快传文件",
+            "NVIDIA 控制面板",
+            "豆包",
+            "Open project in ChatGPT",
         ] {
             assert!(confirmed_third_party(label, ""), "{label}");
         }

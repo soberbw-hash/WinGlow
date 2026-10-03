@@ -162,7 +162,7 @@ pub fn apply() -> Result<ActionResult> {
         },
         || {
             if taskbar::supported() {
-                taskbar::sync()?;
+                taskbar::reload_owned()?;
             }
             breeze::sync()
         },

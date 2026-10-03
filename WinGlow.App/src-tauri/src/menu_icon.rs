@@ -52,6 +52,29 @@ pub fn location(raw: &str) -> Option<(String, i32)> {
     Some((expanded, index))
 }
 
+pub fn command_executable(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let path = if let Some(rest) = raw.strip_prefix('"') {
+        rest.split('"').next()?
+    } else {
+        let end = raw.to_ascii_lowercase().find(".exe")? + 4;
+        &raw[..end]
+    };
+    let (path, _) = location(path)?;
+    let name = Path::new(&path).file_name()?.to_str()?.to_ascii_lowercase();
+    if [
+        "rundll32.exe",
+        "dllhost.exe",
+        "mshta.exe",
+        "wscript.exe",
+        "cscript.exe",
+    ]
+    .contains(&name.as_str())
+    {
+        return None;
+    }
+    Some(path)
+}
 pub fn extract(raw: &str) -> Option<String> {
     let (path, index) = location(raw)?;
     let metadata = std::fs::metadata(&path).ok()?;
@@ -141,6 +164,21 @@ fn render(path: &str, index: i32) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn command_icons_use_only_local_executables_without_arguments() {
+        assert_eq!(
+            command_executable(r#""C:\Program Files\App\app.exe" --open "%V""#),
+            Some(r"C:\Program Files\App\app.exe".into())
+        );
+        assert_eq!(
+            command_executable(r"C:\Tools\app.exe /open"),
+            Some(r"C:\Tools\app.exe".into())
+        );
+        assert!(command_executable(r"\\server\share\app.exe").is_none());
+        assert!(command_executable("powershell.exe -Command something").is_none());
+        assert!(command_executable("https://example.com/app.exe").is_none());
+        assert!(command_executable(r"C:\Windows\system32\rundll32.exe shell32.dll,0").is_none());
+    }
     #[test]
     fn icon_locations_preserve_resource_indices_and_reject_network_paths() {
         assert_eq!(

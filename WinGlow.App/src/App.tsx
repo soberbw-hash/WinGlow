@@ -2,12 +2,11 @@ import { useEffect, useState } from "react";
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { Sparkles, Type, MousePointer2, PanelsTopLeft, RotateCcw, Minus, Square, X, Check } from "lucide-react";
 import { MenuManager } from "./components/MenuManager";
 import appIcon from "./assets/app-icon.png";
 import { cn } from "./lib/cn";
-import { loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setMenuItem, restoreCategory, repairSystem, repairProgress, optimizeSystem, optimizeMenu } from "./lib/tauri";
+import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setMenuItem, restoreCategory, repairSystem, repairProgress, optimizeSystem, optimizeMenu } from "./lib/tauri";
 import type { BootstrapPayload, PageId, ShellState, ActionResult } from "./types";
 
 const pages = [
@@ -106,9 +105,9 @@ export default function App() {
     <div className="workspace"><aside className="sidebar"><div className="brand"><img src={appIcon} alt="" width={40} height={40} /><span>WinGlow</span></div>
       <nav aria-label="功能">{pages.map(({ id, label, icon: Icon }) => <button key={id} className={cn("nav-item", page === id && "active")} aria-current={page === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={18} /><span>{label}</span></button>)}</nav>
       <div className="sidebar-bottom"><button className={cn("nav-item", page === "settings" && "active")} aria-current={page === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><RotateCcw size={18} /><span>还原</span></button></div>
-    </aside><main className={cn("main-content", page === "menu" && "menu-page")} aria-busy={loading || busy}>
+    </aside><main className={cn("main-content", page === "menu" && "menu-page", page === "home" && "home-main")} aria-busy={loading || busy}>
       {page === "home" ? <section className="home-page" aria-label="一键优化">
-        <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观。</h1><p>舒服的字体，清爽的菜单，透明的任务栏。</p></div>
+        <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观</h1><p>舒服的字体，清爽的菜单，柔和的任务栏。</p></div>
         {!shell && !loading && <button className="button secondary" onClick={() => void reload()}>重新读取</button>}
         <div className="home-actions"><button className="button primary optimize-button" disabled={blocked || !shell || shell.optimizationActive} title="首次使用需联网准备 Breeze。完成后自动刷新资源管理器，文件窗口可能关闭。" onClick={() => void mutate(() => optimizeSystem())}><Sparkles size={20} />{busy ? "正在处理…" : shell?.optimizationActive && !shell.optimizationPending ? "已优化" : "一键优化"}</button>
           {shell?.optimizationActive && <button className="button secondary home-restore" disabled={!desktop || busy || loading} onClick={() => void mutate(() => optimizeSystem(true))}><RotateCcw size={17} />{shell.optimizationPending ? "继续恢复" : "撤销优化"}</button>}
@@ -134,7 +133,7 @@ export default function App() {
             <RestoreButton label="还原基础美化" description="恢复本工具修改前的基础美化设置。" disabled={!desktop || busy || loading} onRestore={() => void mutate(() => restoreCategory("details"))} />
             <RestoreButton label="撤销最近修改" description="回到最近一次操作前。成功后重启资源管理器，请先完成文件复制。" disabled={!desktop || busy || loading} onRestore={() => void mutate(() => restoreCategory("all-last"))} />
           </div><div className="repair-section"><h2>普通还原无效？</h2><p>扫描并修复 Windows 系统文件，再恢复默认字体。可能需要联网和重启。</p><RestoreButton label="扫描并修复" description="将运行 Windows 系统修复，可能需要较长时间。期间不要关闭程序，结束后请注销或重启。" disabled={!desktop || busy || loading} primary onRestore={() => void scanRepair()} /></div>
-          <button className="text-button" disabled={!desktop || !bootstrap} onClick={() => { if (bootstrap) void openPath(bootstrap.backupDir).catch(error => setNotice({ text: String(error), error: true })); }}>打开备份</button>
+          <button className="text-button" disabled={!desktop || !bootstrap} onClick={() => { if (bootstrap) void openBackup().catch(error => setNotice({ text: String(error), error: true })); }}>打开备份</button>
         </>}
       {page !== "home" && (bootstrap?.pendingRecovery || shell?.pendingRecovery) && <div className="notice error" role="alert"><p>{bootstrap?.pendingRecovery || "上次修改没有完成，请先还原。"}</p><button className="button secondary" disabled={busy || !desktop} onClick={() => { navigate("settings"); }}>去还原</button></div>}
       {repairing && <div className="notice" role="status">{repairStage}</div>}

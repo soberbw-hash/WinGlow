@@ -25,7 +25,6 @@ export async function loadShell(): Promise<ShellState> {
   return { items: [], breezeEnabled: false, taskbarEnabled: false, taskbarSupported: true, optimizationActive: false, optimizationPending: false, pendingRecovery: false, tweaks: [
     { id: "shortcut-arrow", label: "隐藏快捷方式箭头", enabled: false, note: null },
     { id: "shield-overlay", label: "隐藏盾牌角标", enabled: false, note: "实验功能，部分 Windows 版本可能不生效。" },
-    { id: "desktop-labels", label: "隐藏桌面图标文字", enabled: false, note: null },
     { id: "desktop-icons", label: "隐藏桌面图标", enabled: false, note: null },
     { id: "file-extensions", label: "显示文件扩展名", enabled: false, note: null },
   ] };
@@ -37,3 +36,4 @@ export const repairSystem = () => invoke<ActionResult>("repair_system");
 export const repairProgress = () => invoke<RepairProgress>("repair_progress");
 export const optimizeSystem = (restore = false) => invoke<ActionResult>("optimize_system", { restore });
 export const optimizeMenu = () => invoke<ActionResult>("optimize_menu");
+export const openBackup = () => invoke<void>("open_backup");

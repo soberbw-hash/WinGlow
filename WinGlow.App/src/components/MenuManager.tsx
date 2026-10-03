@@ -1,10 +1,13 @@
 import { useState } from "react";
-import { ChevronRight, Menu, RefreshCw } from "lucide-react";
+import { ChevronRight, RefreshCw, Terminal, Search, ShieldCheck, LockKeyhole, Cloud, FolderOpen, Image, Music, Settings2, Puzzle, FileText, Monitor, Sparkles } from "lucide-react";
 import type { MenuItem } from "../types";
 
 const locations = ["桌面", "文件夹", "文件夹空白处", "所有文件", "EXE 程序", "图片", "文本", "PDF", "压缩文件", "音视频", "快捷方式", "磁盘"];
 function MenuIcon({ item }: { item: MenuItem }) {
-  return item.iconDataUrl ? <img className="menu-item-icon" src={item.iconDataUrl} width={22} height={22} alt="" /> : <Menu className="menu-item-icon placeholder" size={22} aria-hidden="true" />;
+  if (item.iconDataUrl) return <img className="menu-item-icon" src={item.iconDataUrl} width={22} height={22} alt="" title={item.iconSource ?? undefined} />;
+  const label = `${item.label} ${item.rawLabel}`.toLowerCase();
+  const Icon = /powershell|命令|terminal|bash/.test(label) ? Terminal : /搜索|search|find/.test(label) ? Search : /bitlocker|解锁|加密/.test(label) ? LockKeyhole : /defender|兼容|扫描/.test(label) ? ShieldCheck : /网盘|quark|cloud|上传/.test(label) ? Cloud : /图片|背景|image|wallpaper/.test(label) ? Image : /media player|播放|音乐/.test(label) ? Music : /chatgpt|豆包|doubao/.test(label) ? Sparkles : /nvidia|显示/.test(label) ? Monitor : /设置|个性化|armoury|asus/.test(label) ? Settings2 : /project|打开|文件夹/.test(label) ? FolderOpen : item.menuLevel === "extension" ? Puzzle : FileText;
+  return <Icon className="menu-item-icon semantic-icon" size={22} aria-hidden="true" />;
 }
 function searchable(item: MenuItem): string {
   return [item.label, item.rawLabel, ...item.children, ...(item.subItems ?? []).map(searchable)].join(" ").toLocaleLowerCase();

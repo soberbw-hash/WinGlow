@@ -71,6 +71,38 @@ fn write_and_verify(store: &mut impl ValueStore, entries: &[Entry]) -> Result<()
     Ok(())
 }
 
+pub fn checkpoint(
+    store: &impl ValueStore,
+    dir: &Path,
+    operation: &str,
+    slots: Vec<Slot>,
+) -> Result<()> {
+    let before = slots
+        .into_iter()
+        .map(|slot| {
+            Ok(Entry {
+                value: store.read(&slot)?,
+                slot,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    validate_entries(&before)?;
+    let journal = Journal {
+        version: 1,
+        operation: operation.into(),
+        after: before.clone(),
+        before,
+        desktop_labels_before: None,
+    };
+    let bytes = serde_json::to_vec_pretty(&journal)?;
+    if bytes.len() > 2_000_000 {
+        bail!("备份超过大小限制，未开始修复。");
+    }
+    fs::create_dir_all(dir)?;
+    persist_new(&dir.join("snapshot.json"), &bytes)?;
+    persist_new(&dir.join("committed"), b"ok")?;
+    Ok(())
+}
 pub fn execute(
     store: &mut impl ValueStore,
     dir: &Path,
@@ -189,6 +221,20 @@ mod tests {
     }
     fn dir() -> PathBuf {
         std::env::temp_dir().join(format!("weitiao-test-{}", uuid::Uuid::new_v4()))
+    }
+    #[test]
+    fn repair_checkpoint_saves_before_any_mutation_without_writing_settings() {
+        let mut store = Fake::default();
+        let slot = slot(Scope::Substitutes, "Segoe UI");
+        store.values.insert(slot.clone(), string("current"));
+        let d = dir();
+        checkpoint(&store, &d, "repair:checkpoint", vec![slot.clone()]).unwrap();
+        assert_eq!(store.writes, 0);
+        assert_eq!(
+            read_journal(&d).unwrap().before[0].value,
+            Some(string("current"))
+        );
+        fs::remove_dir_all(d).unwrap();
     }
     #[test]
     fn live_desktop_state_is_saved_even_without_persistent_flags() {

@@ -89,3 +89,17 @@ menu_policy.rs 读取 command/CLSID InprocServer32 来源、文件版本 Company
 精简使用一次无图标扫描，不对每项重新扫描；对启用的附加父项整组隐藏，保留父项时递归精简子项，按 Slot 去重。用户明确要求的项目优先于旧安全入口保留规则；仍保留基本操作及不能确认归属的项目。用户看到的数量不代表单次右键实际菜单数量。
 
 实现依据：[Microsoft 静态级联菜单说明](https://learn.microsoft.com/en-us/windows/win32/shell/creating-static-cascading-menus)。动态 IExplorerCommand/COM 子项与静态注册项是不同机制，静态扫描不能声称枚举完整实时菜单。
+
+## 3.2.2 运行时和验收修订
+
+file-extensions 写 HideFileExt 后通过 ordinary parent 的 Explorer 刷新生效；details 还原也刷新。restart 包装器在桌面恢复后调用已启用效果的同步，不启用已关闭效果。任务栏 reload_owned 保留 settings.json 的精确字节，在旧运行时退出可能回写缓存配置后重新写回预期配置，再绑定新 Explorer；仅按完整路径关闭自有实例。Breeze 使用原 inject-consistent 生命周期，退出后同步自有启用实例。
+
+应用存在期间以两秒间隔监测 shell PID，持有优化互斥锁后处理新 shell，跳过运行中操作及未完成恢复，失败最多三次；应用自己的刷新更新已观察 PID，避免重复恢复。不是独立驻留服务，关闭 WinGlow 后不保证监测外部重启。
+
+open_backup 是无路径参数的 native command，后端计算固定备份目录，通过 OpenerExt 打开，不开放前端任意路径权限。旧错误来自 JS opener 的 ACL 拒绝。
+
+transaction 保存快照并同步落盘后才写设置。repair 扫描前新增只读 checkpoint，捕获管理的字体映射、实时角色和已记录设置；无写入测试覆盖。它不是磁盘镜像，DISM/SFC 文件修复不在可逆设置备份范围。
+
+自动精简使用纯 plan_from，测试覆盖先前手动关闭、关闭父项、保留项与重复执行后空计划；所有输出都是隐藏标记，不输出恢复删除值。真实图标依次来自注册图标、扩展 DLL、命令 EXE；拒绝网络/相对路径及通用脚本宿主资源，前端采用功能图标兜底。图标表示类型的兜底不冒充应用官方图标。
+
+任务栏默认配置依据 [TranslucentTB 官方配置](https://github.com/TranslucentTB/TranslucentTB.github.io/blob/master/config.md)，desktop_appearance 使用 accent=blur、show_line=true。

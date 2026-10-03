@@ -287,6 +287,13 @@ fn item_icon(
     {
         return (Some(icon), Some("程序图标".into()));
     }
+    if let Ok(command) = key.open_subkey_with_flags("command", KEY_READ | KEY_WOW64_64KEY)
+        && let Ok(raw) = command.get_value::<String, _>("")
+        && let Some(path) = crate::menu_icon::command_executable(&raw)
+        && let Some(icon) = crate::menu_icon::extract(&path)
+    {
+        return (Some(icon), Some("程序图标".into()));
+    }
     (None, None)
 }
 fn id(scope: &Scope, name: &str) -> String {

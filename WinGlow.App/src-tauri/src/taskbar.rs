@@ -108,7 +108,7 @@ pub fn validate_config(value: Option<&StoredValue>) -> Result<()> {
     Ok(())
 }
 fn config() -> Vec<u8> {
-    serde_json::to_vec_pretty(&serde_json::json!({"desktop_appearance":{"accent":"clear","color":"#00000000","show_line":false},"visible_window_appearance":{"enabled":false},"maximized_window_appearance":{"enabled":false},"start_opened_appearance":{"enabled":false},"search_opened_appearance":{"enabled":false},"task_view_opened_appearance":{"enabled":false},"battery_saver_appearance":{"enabled":false},"disable_saving":true,"hide_tray":false})).unwrap()
+    serde_json::to_vec_pretty(&serde_json::json!({"desktop_appearance":{"accent":"blur","color":"#00000000","show_line":true},"visible_window_appearance":{"enabled":false},"maximized_window_appearance":{"enabled":false},"start_opened_appearance":{"enabled":false},"search_opened_appearance":{"enabled":false},"task_view_opened_appearance":{"enabled":false},"battery_saver_appearance":{"enabled":false},"disable_saving":true,"hide_tray":false})).unwrap()
 }
 pub fn plan() -> Result<Vec<Entry>> {
     Ok(vec![
@@ -312,6 +312,15 @@ pub fn sync() -> Result<()> {
     }
     Ok(())
 }
+pub fn reload_owned() -> Result<()> {
+    // A closing runtime may save its cached config. Retain the intended exact bytes.
+    let config = read_config()?;
+    stop()?;
+    if read_config()? != config {
+        write_config(config.as_ref())?;
+    }
+    sync()
+}
 pub fn set(enable: bool) -> Result<ActionResult> {
     shell_engine::ensure_ready()?;
     if enable {
@@ -328,7 +337,7 @@ pub fn set(enable: bool) -> Result<ActionResult> {
     if !enable {
         remove_own_startup(&mut entries, &format!("\"{}\"", exe()?.display()));
     }
-    let outcome = shell_engine::commit("details:taskbar", entries, sync);
+    let outcome = shell_engine::commit("details:taskbar", entries, reload_owned);
     if outcome.is_err() {
         let _ = sync();
     }
@@ -401,7 +410,8 @@ mod tests {
             assert!(zip.by_name(name).is_ok());
         }
         let parsed: serde_json::Value = serde_json::from_slice(&config()).unwrap();
-        assert_eq!(parsed["desktop_appearance"]["accent"], "clear");
+        assert_eq!(parsed["desktop_appearance"]["accent"], "blur");
+        assert_eq!(parsed["desktop_appearance"]["show_line"], true);
         assert_eq!(parsed["disable_saving"], true);
     }
 }

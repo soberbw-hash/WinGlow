@@ -15,7 +15,7 @@
 @font-face { font-family: "PingFang Preview"; src: url("../../FontPackages/pingfang-sc/PingFangSC-Regular.otf"); font-weight: 400; font-display: swap; }
 @font-face { font-family: "PingFang Preview"; src: url("../../FontPackages/pingfang-sc/PingFangSC-Medium.otf"); font-weight: 500; font-display: swap; }
 @font-face { font-family: "PingFang Preview"; src: url("../../FontPackages/pingfang-sc/PingFangSC-Semibold.otf"); font-weight: 600 700; font-display: swap; }
-:root { font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif; color: var(--color-slate-900); background: var(--color-slate-50); color-scheme: light; font-synthesis: none; }
+:root { font-family: "HarmonyOS Preview", "Segoe UI", "Microsoft YaHei UI", sans-serif; color: var(--color-slate-900); background: var(--color-slate-50); color-scheme: light; font-synthesis: none; }
 @font-face { font-family: "HarmonyOS Bold Preview"; src: url("../../FontPackages/harmonyos-sc/HarmonyOS_Sans_SC_Bold.ttf"); font-weight: 400; font-display: swap; }
 @font-face { font-family: "HarmonyOS Bold Preview"; src: url("../../FontPackages/harmonyos-sc/HarmonyOS_Sans_SC_Bold.ttf"); font-weight: 500; font-display: swap; }
 @font-face { font-family: "HarmonyOS Bold Preview"; src: url("../../FontPackages/harmonyos-sc/HarmonyOS_Sans_SC_Bold.ttf"); font-weight: 700; font-display: swap; }
@@ -179,3 +179,16 @@ h1 { font-size: 24px; line-height: 1.35; font-weight: 600; margin-bottom: 24px; 
 .menu-dynamic-note { font-size: 12px; padding: 10px 16px; color: var(--color-slate-500); border-bottom: 1px solid var(--brand-line); }
 .menu-auto-button { min-height: 44px; padding: 10px 22px; font-size: 15px; }
 .menu-page-heading { flex-wrap: wrap; }
+
+/* Shared axis and optical placement; CSS dimensions stay logical at every DPI. */
+.home-main { padding: 0 32px; display: flex; flex-direction: column; }
+.home-page { flex: 1; min-height: 0; padding: 24px 0 64px; }
+.home-intro { display: flex; flex-direction: column; align-items: center; width: 100%; }
+.home-intro img { width: 96px; height: 96px; margin: 0 0 28px; }
+.home-intro h1 { margin: 0 0 18px; font-size: clamp(32px, 2.6vw, 42px); font-weight: 700; line-height: 1.35; letter-spacing: .06em; padding-left: .06em; }
+.home-intro p { margin: 0; line-height: 1.7; letter-spacing: .025em; }
+.home-actions { margin-top: 32px; }
+.home-main > .notice { flex-shrink: 0; margin: 0 0 18px; }
+input, select, textarea { font-family: inherit; }
+.semantic-icon { color: var(--color-slate-500); }
+@media (max-height: 650px) { .home-page { padding-bottom: 44px; } .home-intro img { width: 80px; height: 80px; margin-bottom: 20px; } }
