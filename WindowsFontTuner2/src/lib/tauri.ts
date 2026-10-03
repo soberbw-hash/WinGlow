@@ -1,44 +1,19 @@
-import { invoke } from "@tauri-apps/api/core";
-import type {
-  ActionResult,
-  ApplySummary,
-  BootstrapPayload,
-  ImportedPresetPayload,
-  RenderStyleId,
-} from "../types";
-
-export async function loadBootstrap() {
-  return invoke<BootstrapPayload>("load_bootstrap");
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { ActionResult, BootstrapPayload } from "../types";
+// Browser previews cannot write Windows settings or report a simulated success.
+export async function loadBootstrap(): Promise<BootstrapPayload> {
+  if (isTauri()) return invoke("load_bootstrap");
+  return {
+    presets: [
+      { id: "harmonyos-sc", label: "HarmonyOS Sans", previewFamily: '"HarmonyOS Preview", "Microsoft YaHei UI", sans-serif', available: true },
+      { id: "source-han-sans-cn", label: "思源黑体", previewFamily: '"Source Han Preview", "Microsoft YaHei UI", sans-serif', available: true },
+      { id: "pingfang-sc", label: "苹方", previewFamily: '"PingFang SC", "Microsoft YaHei UI", sans-serif', available: false },
+    ],
+    activePresetId: null, activeFontLabel: "Windows 默认",
+    currentPreviewFamily: '"Segoe UI", "Microsoft YaHei UI", sans-serif',
+    backupDir: "", canRestore: false, pendingRecovery: null,
+  };
 }
-
-export async function getApplySummary(presetId: string, renderStyleId: RenderStyleId) {
-  return invoke<ApplySummary>("get_apply_summary", { presetId, renderStyleId });
-}
-
-export async function applyPreset(presetId: string, renderStyleId: RenderStyleId) {
-  return invoke<ActionResult>("apply_preset", { presetId, renderStyleId });
-}
-
-export async function importFontFiles(paths: string[]) {
-  return invoke<ActionResult>("import_font_files", { paths });
-}
-
-export async function restoreWindowsDefault() {
-  return invoke<ActionResult>("restore_windows_default");
-}
-
-export async function runRecoveryAction(action: string) {
-  return invoke<ActionResult>("run_recovery_action", { action });
-}
-
-export async function exportCurrentScheme(presetId: string, renderStyleId: RenderStyleId) {
-  return invoke<ActionResult>("export_current_scheme", { presetId, renderStyleId });
-}
-
-export async function importSharedScheme(path: string) {
-  return invoke<ImportedPresetPayload>("import_shared_scheme", { path });
-}
-
-export async function repairSystemFonts() {
-  return invoke<void>("repair_system_fonts");
-}
+export const applyFont = (presetId: string, paths: string[] = []) => invoke<ActionResult>("apply_font", { presetId, paths });
+export const restoreFonts = (mode: "last" | "default") => invoke<ActionResult>("restore_fonts", { mode });
+export const importFonts = (paths: string[]) => invoke<ActionResult>("import_fonts", { paths });

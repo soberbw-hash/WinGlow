@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "WindowsFontTuner 2.0",
-  "version": "2.2.4",
+  "productName": "Windows 微调",
+  "version": "3.0.0",
   "identifier": "com.sober.windowsfonttuner2",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,31 +13,52 @@
     "windows": [
       {
         "label": "main",
-        "title": "WindowsFontTuner 2.0",
-        "width": 1500,
-        "height": 940,
-        "minWidth": 1120,
-        "minHeight": 760,
+        "title": "Windows 微调",
+        "width": 1080,
+        "height": 740,
+        "minWidth": 760,
+        "minHeight": 600,
         "center": true,
         "resizable": true,
         "decorations": false,
-        "transparent": true,
-        "shadow": true
+        "transparent": false,
+        "shadow": true,
+        "backgroundColor": "#ffffff"
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "shortDescription": "让 Windows 更合心意。",
+    "longDescription": "调整字体、右键菜单与界面细节。当前版本提供字体调整与自动备份恢复。",
+    "resources": {
+      "../../FontPackages/harmonyos-sc/LICENSE.txt": "licenses/HarmonyOS-LICENSE.txt",
+      "../../FontPackages/harmonyos-sc/SOURCE.txt": "licenses/HarmonyOS-SOURCE.txt",
+      "../../FontPackages/source-han-sans-cn/LICENSE.txt": "licenses/SourceHan-LICENSE.txt",
+      "../../FontPackages/source-han-sans-cn/SOURCE.txt": "licenses/SourceHan-SOURCE.txt",
+      "../../LICENSE": "licenses/APP-LICENSE.txt"
+    },
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false,
+        "languages": [
+          "SimpChinese"
+        ],
+        "installMode": "currentUser"
+      }
+    }
   }
 }

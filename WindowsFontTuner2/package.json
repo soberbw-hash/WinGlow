@@ -1,32 +1,34 @@
 {
-  "name": "windowsfonttuner2",
+  "name": "windows-weitiao",
   "private": true,
-  "version": "2.2.4",
+  "version": "3.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "check:core": "cargo test --manifest-path src-tauri/Cargo.toml"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2",
-    "@tauri-apps/plugin-dialog": "^2.7.0",
-    "@tauri-apps/plugin-opener": "^2",
+    "@radix-ui/react-alert-dialog": "^1.1.23",
+    "@tauri-apps/api": "^2.12.1",
+    "@tauri-apps/plugin-dialog": "^2.8.1",
+    "@tauri-apps/plugin-opener": "^2.7.0",
     "clsx": "^2.1.1",
-    "framer-motion": "^12.38.0",
     "lucide-react": "^1.7.0",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
-    "@tauri-apps/cli": "^2",
-    "@types/react": "^19.1.8",
-    "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
+    "@tauri-apps/cli": "^2.12.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
     "tailwindcss": "^4.2.2",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2"
   }
 }
