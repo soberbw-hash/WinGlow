@@ -15,8 +15,8 @@ function searchable(item: MenuItem): string {
 function MenuRow({ item, depth = 0, disabled, searching, onToggle }: { item: MenuItem; depth?: number; disabled: boolean; searching: boolean; onToggle: (id: string, enabled: boolean) => void }) {
   const [expanded, setExpanded] = useState(false);
   const children = item.subItems ?? [];
-  const expandable = children.length > 0 || item.menuLevel === "cascade" || item.menuLevel === "extension";
-  const open = expanded || searching && children.length > 0;
+  const expandable = children.length > 0;
+  const open = expandable && (expanded || searching);
   return <>
     <div className="menu-row" style={{ paddingLeft: depth * 28 }}>
       <button className="menu-select" disabled={!expandable} aria-label={expandable ? `${open ? "收起" : "展开"} ${item.label}` : item.label} aria-expanded={expandable ? open : undefined} onClick={() => setExpanded(!expanded)}>
@@ -24,7 +24,7 @@ function MenuRow({ item, depth = 0, disabled, searching, onToggle }: { item: Men
       </button>
       <label className="switch menu-switch"><input type="checkbox" role="switch" aria-label={`${item.label} 显示在右键菜单`} checked={item.enabled} disabled={disabled} onChange={event => onToggle(item.id, event.target.checked)} /><span aria-hidden="true" /></label>
     </div>
-    {open && (children.length > 0 ? children.map(child => <MenuRow key={child.id} item={child} depth={depth + 1} disabled={disabled || !item.enabled} searching={searching} onToggle={onToggle} />) : <p className="menu-dynamic-note" style={{ paddingLeft: 52 + depth * 28 }}>子项由程序生成，使用上面的开关整组显示或隐藏。</p>)}
+    {open && children.map(child => <MenuRow key={child.id} item={child} depth={depth + 1} disabled={disabled || !item.enabled} searching={searching} onToggle={onToggle} />)}
   </>;
 }
 export function MenuManager({ items, disabled, loading, onRefresh, onToggle }: {
