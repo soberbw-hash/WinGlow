@@ -59,6 +59,10 @@ pub enum Operation {
         token: String,
     },
     OptimizeMenu,
+    OptionalTool {
+        id: String,
+        verb: String,
+    },
     Repair,
 }
 
@@ -96,6 +100,11 @@ pub struct ShellState {
     pub breeze_enabled: bool,
     pub taskbar_enabled: bool,
     pub taskbar_supported: bool,
+    pub start_menu_enabled: bool,
+    pub start_menu_supported: bool,
+    pub window_material_enabled: bool,
+    pub window_material_supported: bool,
+    pub optional_tools: Vec<crate::optional_tools::ToolState>,
     pub optimization_active: bool,
     pub optimization_pending: bool,
     pub pending_recovery: bool,

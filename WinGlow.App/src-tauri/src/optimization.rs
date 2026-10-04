@@ -15,6 +15,10 @@ struct Session {
     token: String,
     breeze_before: bool,
     taskbar_before: bool,
+    #[serde(default)]
+    start_menu_applied: bool,
+    #[serde(default)]
+    window_material_applied: bool,
 }
 fn marker() -> Result<PathBuf> {
     Ok(font_engine::data_root()?.join("one-click-session.json"))
@@ -61,6 +65,16 @@ pub fn core(token: &str) -> Result<ActionResult> {
     entries.extend(breeze::startup_entries()?);
     if taskbar::supported() {
         entries.extend(taskbar::plan()?);
+    }
+    let s = session()?.ok_or_else(|| anyhow::anyhow!("缺少优化恢复记录。"))?;
+    if s.token != token {
+        bail!("优化请求与恢复记录不一致。");
+    }
+    if s.start_menu_applied {
+        entries.extend(crate::visual::start_plan()?);
+    }
+    if s.window_material_applied {
+        entries.extend(crate::window_material::plan()?);
     }
     font_engine::apply_with_extra("harmonyos-sc-bold", entries, &format!("optimize:{token}"))
 }
@@ -114,6 +128,9 @@ fn restore_inner() -> Result<ActionResult> {
     if !s.breeze_before {
         breeze::stop()?;
     }
+    if s.start_menu_applied {
+        crate::visual::stop_start()?;
+    }
     worker::run_inner(Operation::UndoOptimization {
         token: s.token.clone(),
     })?;
@@ -123,6 +140,12 @@ fn restore_inner() -> Result<ActionResult> {
     }
     if s.breeze_before {
         breeze::sync()?;
+    }
+    if s.start_menu_applied {
+        crate::visual::sync_start()?;
+    }
+    if s.window_material_applied {
+        crate::window_material::sync()?;
     }
     fs::remove_file(marker()?)?;
     if done(&s.token)?.exists() {
@@ -147,10 +170,16 @@ pub fn apply() -> Result<ActionResult> {
     if taskbar::supported() {
         taskbar::prepare()?;
     }
+    let start_menu_applied = crate::visual::start_available();
+    if start_menu_applied {
+        crate::visual::prepare_start()?;
+    }
     let s = Session {
         token: uuid::Uuid::new_v4().to_string(),
         breeze_before: breeze::running()?,
         taskbar_before: taskbar::running()?,
+        start_menu_applied,
+        window_material_applied: crate::window_material::supported(),
     };
     transaction::persist_new(&marker()?, &serde_json::to_vec(&s)?)?;
     finish_session(
@@ -164,7 +193,15 @@ pub fn apply() -> Result<ActionResult> {
             if taskbar::supported() {
                 taskbar::reload_owned()?;
             }
-            breeze::sync()
+            breeze::sync()?;
+            if s.start_menu_applied {
+                crate::visual::stop_start()?;
+                crate::visual::sync_start()?;
+            }
+            if s.window_material_applied {
+                crate::window_material::sync()?;
+            }
+            Ok(())
         },
         || transaction::persist_new(&done(&s.token)?, b"ok"),
         restore_inner,
@@ -176,6 +213,12 @@ pub fn apply() -> Result<ActionResult> {
         true,
         crate::explorer::restart,
     )?;
+    let mut result = result;
+    if crate::visual::start_supported() && !s.start_menu_applied {
+        result
+            .message
+            .push_str(" 已有其他 Windhawk 实例，开始菜单美化未重复启用。");
+    }
     Ok(result)
 }
 fn finish_session(
@@ -213,6 +256,11 @@ pub fn menu_only() -> Result<ActionResult> {
 mod tests {
     use super::*;
     use std::cell::RefCell;
+    #[test]
+    fn old_sessions_do_not_claim_new_visual_components() {
+        let s: Session = serde_json::from_str(r#"{"token":"1b3bc61e-5619-47b4-b81b-0f435268057c","breeze_before":true,"taskbar_before":true}"#).unwrap();
+        assert!(!s.start_menu_applied && !s.window_material_applied);
+    }
     #[test]
     fn each_failure_stage_rolls_back_and_never_marks_success() {
         for fail in ["core", "activate", "mark", "none"] {

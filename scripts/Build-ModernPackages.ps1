@@ -55,6 +55,11 @@ try {
     Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\Breeze-AGPL-3.0.txt') -Destination $licenses -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\TranslucentTB-GPL-3.0.md') -Destination $licenses -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'third-party\TranslucentTB\SOURCE.md') -Destination (Join-Path $licenses 'TranslucentTB-SOURCE.md') -Force
+    foreach ($name in @('Windhawk-GPL-3.0.txt','Windhawk-LLVM-LICENSE.txt')) { Copy-Item -LiteralPath (Join-Path $repoRoot ('licenses\' + $name)) -Destination $licenses -Force }
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'third-party\Windhawk\SOURCE.md') -Destination (Join-Path $licenses 'Windhawk-SOURCE.md') -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\ContextMenuManager-Dictionary-GPL-3.0.txt') -Destination $licenses -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'third-party\ContextMenuManager\SOURCE.md') -Destination (Join-Path $licenses 'ContextMenuManager-Dictionary-SOURCE.md') -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'third-party\ContextMenuManager\GuidInfosDic.ini') -Destination (Join-Path $licenses 'ContextMenuManager-GuidInfosDic.ini') -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\THIRD-PARTY.txt') -Destination $licenses -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'FontPackages\pingfang-sc\NOTICE.txt') -Destination (Join-Path $licenses 'PingFang-NOTICE.txt') -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'FontPackages\pingfang-sc\SOURCE.txt') -Destination (Join-Path $licenses 'PingFang-SOURCE.txt') -Force

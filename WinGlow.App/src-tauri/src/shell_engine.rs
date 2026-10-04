@@ -128,6 +128,11 @@ pub fn load() -> Result<ShellState> {
         breeze_enabled: crate::breeze::enabled()?,
         taskbar_enabled: crate::taskbar::enabled()?,
         taskbar_supported: crate::taskbar::supported(),
+        start_menu_enabled: crate::visual::start_enabled()?,
+        start_menu_supported: crate::visual::start_supported(),
+        window_material_enabled: crate::window_material::enabled()?,
+        window_material_supported: crate::window_material::supported(),
+        optional_tools: crate::optional_tools::states()?,
         optimization_active,
         optimization_pending,
         pending_recovery: transaction::backup_directories(&font_engine::backup_root()?)?
@@ -186,6 +191,12 @@ pub fn toggle(id: &str, enabled: bool) -> Result<ActionResult> {
     }
     if id == "breeze" {
         return crate::breeze::set(enabled);
+    }
+    if id == "start-menu" {
+        return crate::visual::set_start(enabled);
+    }
+    if id == "window-material" {
+        return crate::window_material::set(enabled);
     }
     let slot = tweak_slot(id)?;
     let original = baseline(std::slice::from_ref(&slot))?.remove(0);
@@ -277,16 +288,23 @@ pub fn restore(category: &str) -> Result<ActionResult> {
                         | Scope::IconOverrides
                         | Scope::DesktopView
                         | Scope::TaskbarConfig
+                        | Scope::VisualConfig
                 ),
             };
             let belongs = belongs
                 && !(category == "menu"
                     && entry.slot.scope == Scope::Startup
-                    && entry.slot.name == "WinGlow-TranslucentTB");
+                    && matches!(
+                        entry.slot.name.as_str(),
+                        "WinGlow-TranslucentTB" | "WinGlow-StartMenu" | "WinGlow-WindowMaterial"
+                    ));
             let belongs = belongs
                 || category == "details"
                     && entry.slot.scope == Scope::Startup
-                    && entry.slot.name == "WinGlow-TranslucentTB";
+                    && matches!(
+                        entry.slot.name.as_str(),
+                        "WinGlow-TranslucentTB" | "WinGlow-StartMenu" | "WinGlow-WindowMaterial"
+                    );
             if belongs && !slots.contains(&entry.slot) {
                 slots.push(entry.slot);
             }

@@ -13,6 +13,7 @@ dist/
 third_party/
 *.zip
 !third-party/TranslucentTB/TranslucentTB-2026.2-x64.zip
+!third-party/Windhawk/Windhawk-1.7.3-start-menu-1.7.zip
 /WinGlow.exe
 /mscorlib.dll
 /norm*.nlp

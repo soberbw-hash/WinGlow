@@ -1,15 +1,18 @@
 mod app_update;
 mod archive_filter;
 mod breeze;
+mod component_runtime;
 mod desktop;
 mod explorer;
 mod font_engine;
 mod legacy;
 mod menu;
+mod menu_dictionary;
 mod menu_icon;
 mod menu_policy;
 mod models;
 mod optimization;
+mod optional_tools;
 mod preset_data;
 mod registry;
 mod repair;
@@ -17,6 +20,9 @@ mod shell_engine;
 mod taskbar;
 mod transaction;
 mod ui_fonts;
+mod visual;
+mod visual_diagnostics;
+mod window_material;
 mod worker;
 
 use models::{ActionResult, BootstrapPayload, Operation};
@@ -146,6 +152,20 @@ pub fn run() {
                 return Ok(());
             }
             explorer::watch_shell();
+            std::thread::spawn(menu_dictionary::update_if_due);
+            std::thread::spawn(|| {
+                let result = (|| -> anyhow::Result<()> {
+                    let _guard = worker::optimization_lock()?;
+                    shell_engine::ensure_ready()?;
+                    if optimization::state()?.1 {
+                        return Ok(());
+                    }
+                    visual::sync()
+                })();
+                if let Err(error) = result {
+                    eprintln!("视觉组件恢复未完成：{error:#}");
+                }
+            });
             app_update::check(app.handle().clone());
             Ok(())
         })
@@ -168,7 +188,9 @@ pub fn run() {
             open_backup,
             update_status,
             check_updates,
-            install_update
+            install_update,
+            optional_tool,
+            refresh_menu_dictionary
         ])
         .run(tauri::generate_context!())
         .expect("启动 WinGlow失败");
@@ -187,4 +209,19 @@ async fn install_update() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(app_update::install)
         .await
         .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn optional_tool(id: String, action: String) -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || optional_tools::run(id, action))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn refresh_menu_dictionary() -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(menu_dictionary::refresh)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("识别库更新未完成，继续使用已有识别库：{e:#}"))
 }

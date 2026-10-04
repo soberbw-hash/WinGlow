@@ -131,6 +131,14 @@ pub fn run(operation: Operation) -> Result<ActionResult> {
     let mut outcome = run_inner(operation);
     if sync_taskbar
         && let Ok(result) = &mut outcome
+        && let Err(error) = crate::visual::sync()
+    {
+        result
+            .message
+            .push_str(&format!(" 视觉组件恢复未完成：{error:#}。"));
+    }
+    if sync_taskbar
+        && let Ok(result) = &mut outcome
         && let Err(error) = crate::taskbar::sync()
     {
         result
@@ -145,6 +153,7 @@ pub fn run(operation: Operation) -> Result<ActionResult> {
 
 pub(crate) fn run_inner(operation: Operation) -> Result<ActionResult> {
     let needs_admin = match &operation {
+        Operation::OptionalTool { id, verb } => id == "explorer-patcher" && verb != "open",
         Operation::Toggle { .. } => false,
         Operation::Menu { id, .. } => crate::menu::needs_admin(id)?,
         Operation::RestoreCategory { category } => category == "menu" || category == "all-last",
@@ -213,6 +222,7 @@ fn worker(nonce: &str) -> Result<()> {
 
 fn dispatch(operation: Operation) -> Result<ActionResult> {
     match operation {
+        Operation::OptionalTool { id, verb } => crate::optional_tools::perform(&id, &verb),
         Operation::Toggle { id, enabled } => crate::shell_engine::toggle(&id, enabled),
         Operation::Menu { id, enabled } => crate::shell_engine::toggle_menu(&id, enabled),
         Operation::RestoreCategory { category } => {
@@ -250,6 +260,44 @@ fn show_message(text: &str, error: bool) {
 
 pub fn handle_cli() -> bool {
     let args: Vec<_> = env::args().collect();
+    if args.iter().any(|a| a == "--verify-menu") {
+        let result = (|| -> Result<()> {
+            let dictionary_update = crate::menu_dictionary::refresh();
+            let items = crate::menu::scan()?;
+            fs::write(
+                font_engine::data_root()?.join("menu-snapshot.json"),
+                serde_json::to_vec(&items.iter().map(|i| &i.0).collect::<Vec<_>>())?,
+            )?;
+            let mut targets = std::collections::BTreeMap::<String, usize>::new();
+            for item in &items {
+                for target in &item.0.targets {
+                    *targets.entry(target.clone()).or_default() += 1;
+                }
+            }
+            let report = serde_json::json!({"success":true,"items":items.len(),"withIcons":items.iter().filter(|i| i.0.icon_data_url.is_some()).count(),"targets":targets,"dictionaryUpdated":dictionary_update.is_ok(),"dictionaryError":dictionary_update.err().map(|e|format!("{e:#}"))});
+            fs::write(
+                font_engine::data_root()?.join("menu-verification.json"),
+                serde_json::to_vec_pretty(&report)?,
+            )?;
+            Ok(())
+        })();
+        if let Err(e) = result {
+            eprintln!("{e:#}");
+        }
+        return true;
+    }
+    if args.iter().any(|a| a == "--verify-visual") {
+        if let Err(e) = crate::visual_diagnostics::run() {
+            eprintln!("{e:#}");
+        }
+        return true;
+    }
+    if args.iter().any(|a| a == "--window-material-host") {
+        if let Err(e) = crate::window_material::host() {
+            eprintln!("{e:#}");
+        }
+        return true;
+    }
     if let Some(index) = args.iter().position(|a| a == "--font-worker") {
         if let Some(nonce) = args.get(index + 1)
             && let Err(e) = worker(nonce)

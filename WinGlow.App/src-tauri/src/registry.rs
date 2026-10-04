@@ -29,6 +29,7 @@ pub enum Scope {
     LiveUiFonts,
     TaskbarConfig,
     ArchiveFilter,
+    VisualConfig,
 }
 
 impl Scope {
@@ -61,6 +62,7 @@ impl Scope {
             Self::WindowMetrics => r"Control Panel\Desktop\WindowMetrics".into(),
             Self::TaskbarConfig => String::new(),
             Self::ArchiveFilter => String::new(),
+            Self::VisualConfig => String::new(),
             Self::LiveUiFonts => String::new(), // Virtual slot, handled through native APIs below.
         }
     }
@@ -201,6 +203,7 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
         Scope::LiveUiFonts => slot.name == "Fonts",
         Scope::TaskbarConfig => slot.name == "settings.json",
         Scope::ArchiveFilter => slot.name == "WinGlow-ArchiveFilter.js",
+        Scope::VisualConfig => crate::visual::CONFIG_NAMES.contains(&slot.name.as_str()),
         Scope::MenuVerb { path, .. } => {
             crate::menu::valid_verb_path(path) && slot.name == "LegacyDisable"
         }
@@ -213,7 +216,11 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
         // Existing journals must remain restorable after the brand rename.
         Scope::Startup => matches!(
             slot.name.as_str(),
-            "WinGlow-Breeze" | "WindowsWeitiao-Breeze" | "WinGlow-TranslucentTB"
+            "WinGlow-Breeze"
+                | "WindowsWeitiao-Breeze"
+                | "WinGlow-TranslucentTB"
+                | "WinGlow-StartMenu"
+                | "WinGlow-WindowMaterial"
         ),
     };
     if !allowed {
@@ -229,6 +236,9 @@ pub fn validate_entries(entries: &[Entry]) -> Result<()> {
     let mut seen = std::collections::BTreeSet::new();
     for entry in entries {
         validate_slot(&entry.slot)?;
+        if entry.slot.scope == Scope::VisualConfig {
+            crate::visual::validate(&entry.slot.name, entry.value.as_ref())?;
+        }
         if entry.slot.scope == Scope::TaskbarConfig {
             crate::taskbar::validate_config(entry.value.as_ref())?;
         }
@@ -251,6 +261,9 @@ pub struct WindowsRegistry;
 impl ValueStore for WindowsRegistry {
     fn read(&self, slot: &Slot) -> Result<Option<StoredValue>> {
         validate_slot(slot)?;
+        if slot.scope == Scope::VisualConfig {
+            return crate::visual::read(&slot.name);
+        }
         if slot.scope == Scope::ArchiveFilter {
             return crate::archive_filter::read();
         }
@@ -280,6 +293,9 @@ impl ValueStore for WindowsRegistry {
     }
     fn write(&mut self, entry: &Entry) -> Result<()> {
         validate_entries(std::slice::from_ref(entry))?;
+        if entry.slot.scope == Scope::VisualConfig {
+            return crate::visual::write(&entry.slot.name, entry.value.as_ref());
+        }
         if entry.slot.scope == Scope::ArchiveFilter {
             return crate::archive_filter::write(entry.value.as_ref());
         }

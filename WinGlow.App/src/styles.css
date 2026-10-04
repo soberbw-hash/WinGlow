@@ -83,6 +83,11 @@ h1 { font-size: 24px; line-height: 1.35; font-weight: 600; margin-bottom: 24px; 
 .notice.error { background: var(--color-red-50); color: var(--color-red-800); }
 .notice p { margin-bottom: 12px; }
 .settings-list { border-top: 1px solid var(--brand-line); }
+.optional-section { margin-top: 32px; }
+.optional-section > h2 { font-size: 15px; font-weight: 600; color: var(--color-slate-600); }
+.optional-section h3 { font-size: 15px; font-weight: 600; }
+.optional-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.optional-section .setting-row > div:first-child { min-width: 0; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px 0; border-bottom: 1px solid var(--brand-line); }
 .setting-row h2 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
 .setting-row p,.settings-hint { font-size: 13px; color: var(--color-slate-600); line-height: 1.7; }
@@ -193,4 +198,10 @@ h1 { font-size: 24px; line-height: 1.35; font-weight: 600; margin-bottom: 24px; 
 .home-main > .notice { flex-shrink: 0; margin: 0 0 18px; }
 input, select, textarea { font-family: inherit; }
 .semantic-icon { color: var(--color-slate-500); }
+.menu-sections { display: flex; gap: 20px; border-bottom: 1px solid var(--brand-line); margin-bottom: 12px; flex-shrink: 0; }
+.menu-sections button { border: 0; border-bottom: 2px solid transparent; background: transparent; padding: 7px 2px 10px; font-size: 13px; color: var(--color-slate-600); }
+.menu-sections button[aria-pressed="true"] { border-bottom-color: var(--brand-accent); color: var(--brand-strong); font-weight: 600; }
+.menu-sections button:focus-visible { outline: 2px solid var(--brand-accent); outline-offset: 2px; }
+.menu-toolbar .menu-status { width: 104px; flex-shrink: 0; min-height: 36px; padding: 5px 8px; border: 1px solid var(--brand-line); border-radius: 8px; background: white; color: var(--color-slate-600); font-size: 12px; }
+.dictionary-settings { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--brand-line); font-size: 14px; }
 @media (max-height: 650px) { .home-page { padding-bottom: 44px; } .home-intro img { width: 80px; height: 80px; margin-bottom: 20px; } }

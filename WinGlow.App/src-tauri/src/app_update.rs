@@ -122,11 +122,21 @@ pub fn install() -> Result<(), String> {
     };
     // Windows updater starts the NSIS /UPDATE /R flow and exits only after
     // successfully launching it. NSIS reinstalls and relaunches WinGlow.
-    if let Err(error) = update.install(bytes.as_slice()) {
+    let install = crate::window_material::pause().and_then(|_| {
+        update
+            .install(bytes.as_slice())
+            .map_err(anyhow::Error::from)
+    });
+    if let Err(error) = install {
+        let recovery = crate::window_material::sync();
+        let recovery_note = recovery
+            .err()
+            .map(|e| format!("；窗口磨砂恢复未完成：{e:#}"))
+            .unwrap_or_default();
         let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
         state.view.phase = "ready".into();
-        state.view.error = Some(format!("安装未启动，请重试：{error}"));
-        return Err(format!("安装未启动，请重试：{error}"));
+        state.view.error = Some(format!("安装未启动，请重试：{error}{recovery_note}"));
+        return Err(format!("安装未启动，请重试：{error}{recovery_note}"));
     }
     Ok(())
 }

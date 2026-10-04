@@ -1,6 +1,6 @@
 [package]
 name = "winglow"
-version = "1.0.0"
+version = "1.1.0"
 description = "WinGlow - 字体与桌面细节"
 authors = ["sober"]
 edition = "2024"
@@ -50,6 +50,7 @@ windows = { version = "0.62.2", features = [
   "Win32_System_Variant",
   "Win32_Storage_FileSystem",
   "Win32_Graphics_Gdi",
+  "Win32_Graphics_Dwm",
   "Win32_UI_HiDpi",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_Shell",

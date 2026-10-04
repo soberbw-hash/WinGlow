@@ -18,5 +18,6 @@ export interface MenuItem {
   rawLabel: string; autoHide: boolean; targets: string[]; menuLevel: "direct" | "cascade" | "extension";
   children: string[]; subItems: MenuItem[]; visibilityNote: string | null; iconDataUrl: string | null; iconSource: string | null;
 }
-export interface ShellState { items: MenuItem[]; tweaks: ToggleState[]; breezeEnabled: boolean; taskbarEnabled: boolean; taskbarSupported: boolean; optimizationActive: boolean; optimizationPending: boolean; pendingRecovery: boolean; }
+export interface OptionalToolState { id: string; label: string; installed: boolean; managed: boolean; supported: boolean; note: string; }
+export interface ShellState { items: MenuItem[]; tweaks: ToggleState[]; breezeEnabled: boolean; taskbarEnabled: boolean; taskbarSupported: boolean; startMenuEnabled: boolean; startMenuSupported: boolean; windowMaterialEnabled: boolean; windowMaterialSupported: boolean; optionalTools: OptionalToolState[]; optimizationActive: boolean; optimizationPending: boolean; pendingRecovery: boolean; }
 export interface RepairProgress { running: boolean; stage: string; logDir: string; }

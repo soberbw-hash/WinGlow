@@ -2,7 +2,11 @@ import { useState } from "react";
 import { ChevronRight, RefreshCw, Terminal, Search, ShieldCheck, LockKeyhole, Cloud, FolderOpen, Image, Music, Settings2, Puzzle, FileText, Monitor, Sparkles } from "lucide-react";
 import type { MenuItem } from "../types";
 
-const locations = ["桌面", "文件夹", "文件夹空白处", "所有文件", "EXE 程序", "图片", "文本", "PDF", "压缩文件", "音视频", "快捷方式", "磁盘"];
+const sections = [
+  { label: "常用位置", locations: ["桌面", "所有文件", "文件夹", "文件夹空白处", "磁盘"] },
+  { label: "文件类型", locations: ["EXE 程序", "快捷方式", "应用快捷方式", "图片", "文本", "PDF", "压缩文件", "音视频", "未知格式"] },
+  { label: "其他位置", locations: ["此电脑", "回收站", "库", "库空白处"] },
+];
 function MenuIcon({ item }: { item: MenuItem }) {
   if (item.iconDataUrl) return <img className="menu-item-icon" src={item.iconDataUrl} width={22} height={22} alt="" title={item.iconSource ?? undefined} />;
   const label = `${item.label} ${item.rawLabel}`.toLowerCase();
@@ -32,14 +36,19 @@ export function MenuManager({ items, disabled, loading, onRefresh, onToggle }: {
   onRefresh: () => void; onToggle: (id: string, enabled: boolean) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [section, setSection] = useState("常用位置");
   const [location, setLocation] = useState("桌面");
-  const availableLocations = locations.filter(target => items.some(item => item.targets.includes(target)));
+  const [status, setStatus] = useState("all");
+  const currentSection = sections.find(s => s.label === section) ?? sections[0];
+  const availableLocations = currentSection.locations.filter(target => items.some(item => item.targets.includes(target)));
   const effectiveLocation = availableLocations.includes(location) ? location : "";
-  const shown = items.filter(item => (!effectiveLocation || item.targets.includes(effectiveLocation)) && searchable(item).includes(search.trim().toLocaleLowerCase()));
+  const shown = items.filter(item => (effectiveLocation ? item.targets.includes(effectiveLocation) : item.targets.some(target => currentSection.locations.includes(target))) && (status === "all" || item.enabled === (status === "visible")) && searchable(item).includes(search.trim().toLocaleLowerCase()));
   return <div className="menu-manager">
+    <div className="menu-sections" aria-label="菜单分类">{sections.map(s => <button key={s.label} aria-pressed={section === s.label} onClick={() => { setSection(s.label); setLocation(s.locations.find(target => items.some(item => item.targets.includes(target))) ?? ""); }}>{s.label}</button>)}</div>
     <div className="menu-locations" aria-label="右键位置">{["", ...availableLocations].map(target => <button key={target} aria-pressed={effectiveLocation === target} onClick={() => setLocation(target)}>{target || "全部"}</button>)}</div>
     <div className="menu-toolbar">
       <input type="search" aria-label="查找菜单项" placeholder="查找菜单" value={search} onChange={event => setSearch(event.target.value)} />
+      <select className="menu-status" aria-label="菜单显示状态" value={status} onChange={event => setStatus(event.target.value)}><option value="all">全部状态</option><option value="visible">正在显示</option><option value="hidden">已隐藏</option></select>
       <span className="menu-count">{shown.length} 项</span><button className="icon-button" aria-label="刷新菜单项" disabled={loading} onClick={onRefresh}><RefreshCw size={16} /></button>
     </div>
     <div className="menu-list" aria-label="菜单项">{shown.length === 0 ? <p className="empty-state">没有匹配的菜单项</p> : shown.map(item => <MenuRow key={item.id} item={item} disabled={disabled} searching={!!search.trim()} onToggle={onToggle} />)}</div>

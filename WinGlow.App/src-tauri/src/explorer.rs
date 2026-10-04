@@ -257,7 +257,7 @@ impl StableTaskbar {
                 .is_some_and(|since| now.duration_since(since) >= Duration::from_secs(2))
     }
 }
-fn wait_for_taskbar() -> Result<()> {
+pub(crate) fn wait_for_taskbar() -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(15);
     let mut stable = StableTaskbar::default();
     while Instant::now() < deadline {
@@ -311,7 +311,8 @@ fn recover_effects() -> Result<()> {
         }
         Ok(())
     })();
-    finish_runtime(taskbar, || breeze)
+    let visual = crate::visual::sync();
+    finish_runtime(finish_runtime(taskbar, || breeze), || visual)
 }
 pub fn restart() -> Result<()> {
     let result = protected_refresh(crate::taskbar::pause_owned, restart_shell, || {

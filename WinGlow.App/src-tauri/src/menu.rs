@@ -16,11 +16,19 @@ const ROOTS: &[(&str, &str)] = &[
     ("*", "所有文件"),
     ("AllFilesystemObjects", "文件与文件夹"),
     ("Directory", "文件夹"),
+    ("Folder", "文件夹"),
     ("Directory\\Background", "文件夹空白处"),
     ("Drive", "磁盘"),
     ("DesktopBackground", "桌面"),
     ("exefile", "EXE 程序"),
     ("lnkfile", "快捷方式"),
+    ("Launcher.ImmersiveApplication", "应用快捷方式"),
+    ("Unknown", "未知格式"),
+    ("LibraryFolder", "库"),
+    ("UserLibraryFolder", "库"),
+    ("LibraryFolder\\Background", "库空白处"),
+    ("CLSID\\{20D04FE0-3AEA-1069-A2D8-08002B30309D}", "此电脑"),
+    ("CLSID\\{645FF040-5081-101B-9F08-00AA002F954E}", "回收站"),
     ("txtfile", "文本"),
     ("SystemFileAssociations\\.txt", "文本"),
     ("SystemFileAssociations\\image", "图片"),
@@ -47,6 +55,72 @@ const PROTECTED: &[&str] = &[
     "properties",
     "printto",
 ];
+const FILE_TYPES: &[(&str, &str)] = &[
+    (".jpg", "图片"),
+    (".jpeg", "图片"),
+    (".png", "图片"),
+    (".gif", "图片"),
+    (".bmp", "图片"),
+    (".webp", "图片"),
+    (".txt", "文本"),
+    (".md", "文本"),
+    (".pdf", "PDF"),
+    (".zip", "压缩文件"),
+    (".7z", "压缩文件"),
+    (".rar", "压缩文件"),
+    (".mp3", "音视频"),
+    (".wav", "音视频"),
+    (".mp4", "音视频"),
+    (".mkv", "音视频"),
+];
+fn valid_association_class(class: &str) -> bool {
+    // A single Classes root only: no nested registry paths. LegacyDisable remains
+    // the sole writable value and essential open/runas/delete verbs stay protected.
+    !class.is_empty()
+        && class.len() <= 200
+        && class
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
+        && (class.contains('.')
+            || class.to_ascii_lowercase().ends_with("file")
+            || class.starts_with("AppX"))
+        && class != "."
+        && class != ".."
+}
+fn registration_roots() -> Vec<(String, String)> {
+    let mut roots: Vec<_> = ROOTS
+        .iter()
+        .map(|(p, group)| (p.to_string(), group.to_string()))
+        .collect();
+    for (extension, group) in FILE_TYPES {
+        let hkcr = RegKey::predef(HKEY_CLASSES_ROOT);
+        let selected = RegKey::predef(HKEY_CURRENT_USER).open_subkey(format!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\{extension}\\UserChoice")).ok().and_then(|k| k.get_value::<String, _>("ProgId").ok());
+        let registered = hkcr
+            .open_subkey(extension)
+            .ok()
+            .and_then(|k| k.get_value::<String, _>("").ok());
+        let association = selected
+            .filter(|s| valid_association_class(s))
+            .or_else(|| registered.filter(|s| valid_association_class(s)));
+        let shared = format!("SystemFileAssociations\\{extension}");
+        if !roots.iter().any(|(p, _)| p == &shared) {
+            roots.push((shared, group.to_string()));
+        }
+        for class in [Some(extension.to_string()), association]
+            .into_iter()
+            .flatten()
+        {
+            if valid_association_class(&class)
+                && !roots
+                    .iter()
+                    .any(|(p, g)| p.eq_ignore_ascii_case(&class) && g == group)
+            {
+                roots.push((class, group.to_string()));
+            }
+        }
+    }
+    roots
+}
 pub fn valid_command_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() < 200
@@ -56,15 +130,26 @@ pub fn valid_command_name(name: &str) -> bool {
         })
 }
 pub fn valid_verb_path(path: &str) -> bool {
-    ROOTS.iter().any(|(root, _)| {
+    let static_root = ROOTS.iter().any(|(root, _)| {
         path.strip_prefix(&format!("{root}\\shell\\"))
             .is_some_and(|tail| {
                 let parts: Vec<_> = tail.split("\\shell\\").collect();
                 parts.len() <= 5 && parts.iter().all(|name| valid_command_name(name))
             })
-    })
+    });
+    static_root
+        || path.split_once("\\shell\\").is_some_and(|(class, tail)| {
+            (valid_association_class(class)
+                || class
+                    .strip_prefix("SystemFileAssociations\\")
+                    .is_some_and(|e| FILE_TYPES.iter().any(|(extension, _)| e == *extension)))
+                && {
+                    let parts: Vec<_> = tail.split("\\shell\\").collect();
+                    parts.len() <= 5 && parts.iter().all(|name| valid_command_name(name))
+                }
+        })
 }
-fn readable(raw: String) -> String {
+pub(crate) fn readable(raw: String) -> String {
     if raw.starts_with('@') {
         let wide: Vec<_> = raw.encode_utf16().chain([0]).collect();
         let mut out = [0u16; 512];
@@ -95,7 +180,7 @@ fn friendly(raw: &str) -> String {
     match clean.to_ascii_lowercase().as_str() {
         "copy as path menu" | "copyaspath" => "复制文件路径".into(),
         "doubao context menu" => "豆包".into(),
-        "360zip file type" => "360 压缩".into(),
+        "360zip file type" | "360zip" => "360 压缩".into(),
         "encryption context menu" => "加密 / 解密".into(),
         "previous versions property page" => "以前的版本".into(),
         "sharing" | "sharing handler" => "共享".into(),
@@ -347,13 +432,14 @@ fn leaf_identity(name: &str, label: &str, command: &str, delegate: &str) -> Opti
 pub(crate) fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> {
     let mut items: Vec<(MenuItem, registry::Slot)> = Vec::new();
     let mut child_slots = Vec::new();
+    let roots = registration_roots();
     for machine in [false, true] {
         let root = RegKey::predef(if machine {
             HKEY_LOCAL_MACHINE
         } else {
             HKEY_CURRENT_USER
         });
-        for (class, group) in ROOTS {
+        for (class, group) in &roots {
             let base = format!("Software\\Classes\\{class}");
             let verbs = match root
                 .open_subkey_with_flags(format!("{base}\\shell"), KEY_READ | KEY_WOW64_64KEY)
@@ -473,7 +559,7 @@ pub(crate) fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> 
                         key.open_subkey_with_flags("InprocServer32", KEY_READ | KEY_WOW64_64KEY)
                             .ok()
                     });
-                    let (icon_data_url, icon_source) = clsid
+                    let (mut icon_data_url, mut icon_source) = clsid
                         .as_ref()
                         .map(|key| item_icon(key, server.as_ref(), icons))
                         .unwrap_or((None, None));
@@ -484,6 +570,23 @@ pub(crate) fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> 
                             .filter(|s| !s.is_empty())
                             .unwrap_or(name),
                     );
+                    let server_path = server
+                        .as_ref()
+                        .and_then(|key| key.get_value::<String, _>("").ok());
+                    let dictionary = crate::menu_dictionary::lookup(&guid);
+                    let display_label = dictionary
+                        .as_ref()
+                        .and_then(|info| info.label(server_path.as_deref()))
+                        .map(|s| friendly(&s))
+                        .unwrap_or_else(|| extension_label(&label, server.as_ref()));
+                    if icons
+                        && let Some(icon) = dictionary
+                            .as_ref()
+                            .and_then(|info| info.icon(server_path.as_deref()))
+                    {
+                        icon_data_url = Some(icon);
+                        icon_source = Some("菜单识别库".into());
+                    }
                     let enabled = crate::registry::WindowsRegistry.read(&slot)?.is_none()
                         && crate::registry::WindowsRegistry
                             .read(&registry::slot(Scope::MachineBlockedExtensions, &guid))?
@@ -491,7 +594,7 @@ pub(crate) fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> 
                     items.push((
                         MenuItem {
                             id: id(&slot.scope, &guid),
-                            label: extension_label(&label, server.as_ref()),
+                            label: display_label,
                             auto_hide: crate::menu_policy::should_hide(
                                 &label,
                                 &slot,
@@ -566,6 +669,19 @@ pub fn needs_admin(id: &str) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn association_paths_are_limited_to_leaf_classes_and_keep_core_verbs_protected() {
+        assert!(valid_verb_path("Acrobat.Document.DC\\shell\\custom"));
+        assert!(valid_verb_path("AppX123abc\\shell\\share"));
+        assert!(!valid_verb_path("Acrobat.Document.DC\\shell\\open"));
+        assert!(!valid_verb_path(
+            "Software\\Classes\\Acrobat.Document.DC\\shell\\custom"
+        ));
+        assert!(!valid_verb_path("..\\shell\\custom"));
+        assert!(!valid_verb_path(
+            "Acrobat.Document.DC\\shell\\custom\\command"
+        ));
+    }
     #[test]
     fn duplicate_titles_require_same_command_identity() {
         let jpg = leaf_identity("setdesktopwallpaper", "设置为桌面背景", "wallpaper %1", "");

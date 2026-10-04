@@ -12,11 +12,22 @@ Breeze Shell 0.1.34：AGPL-3.0，独立、未经修改的上游可执行程序�
 许可证全文：Breeze-AGPL-3.0.txt
 下载文件 SHA-256：80294ffea75113a7f65eecbe777b579ce671559f0b49f2a83b291ec865f433c2
 
-ContextMenuManager 与 Nilesoft Shell 仅作为研究参考；未复制其实现或打包其二进制文件。
+ContextMenuManager：引入未经修改的 GUID 名称与图标字典 GuidInfosDic.ini，保留 GPL-3.0 原许可证、源文件及来源记录。未复制 C# 实现、增强菜单命令、XML 修改规则或二进制。字典许可不被 WinGlow MIT 替代。
+源码与精确来源：ContextMenuManager-Dictionary-SOURCE.md
+许可全文：ContextMenuManager-Dictionary-GPL-3.0.txt
+Nilesoft Shell 仅作为研究参考，未复制实现或打包二进制。
 
 TranslucentTB 2026.2：GPL-3.0，独立、未经修改的官方 Windows 11 x64 便携发行版。组件随安装包内附，并在用户启用时释放到本工具自己的数据目录，使用独立 settings.json。
 源码：https://github.com/TranslucentTB/TranslucentTB/tree/2026.2
 发行版：https://github.com/TranslucentTB/TranslucentTB/releases/tag/2026.2
 许可证全文：TranslucentTB-GPL-3.0.md
 来源与 SHA-256：TranslucentTB-SOURCE.md
-未修改用户另外安装的 Store/MSIX 或便携版本。Windhawk、Lively、Rainmeter、ExplorerPatcher、Open-Shell 和 DWMBlurGlass 仅列为候选，未集成。
+未修改用户另外安装的 Store/MSIX 或便携版本。
+
+Windhawk 1.7.3：独立的未经修改 GPL-3.0 引擎，仅附 Start Menu Styler 1.7 模块及必要运行库。组件包含模块源码与许可，来源和哈希见 Windhawk-SOURCE.md，运行库许可见 Windhawk-LLVM-LICENSE.txt。
+
+Lively 2.2.1.0（GPL-3.0）与 ExplorerPatcher 26100.8457.70.3（GPL-2.0）：安装包不内附；主动选择安装后从官方发行版下载并校验固定 SHA-256。保留官方安装器、卸载器和许可证。
+https://github.com/lively-community/lively/tree/v2.2.1.0
+https://github.com/valinet/ExplorerPatcher/tree/26100.8457.70.3
+
+Rainmeter、Open-Shell 和 DWMBlurGlass 未集成。窗口磨砂使用 Windows 官方 DWM 材质接口。

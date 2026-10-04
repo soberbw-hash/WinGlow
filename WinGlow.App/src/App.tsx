@@ -7,7 +7,7 @@ import { MenuManager } from "./components/MenuManager";
 import { AppUpdates } from "./components/AppUpdates";
 import appIcon from "./assets/app-icon.png";
 import { cn } from "./lib/cn";
-import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setMenuItem, restoreCategory, repairSystem, repairProgress, optimizeSystem, optimizeMenu } from "./lib/tauri";
+import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setMenuItem, restoreCategory, repairSystem, repairProgress, optimizeSystem, optimizeMenu, optionalTool, refreshMenuDictionary } from "./lib/tauri";
 import type { BootstrapPayload, PageId, ShellState, ActionResult } from "./types";
 
 const pages = [
@@ -108,7 +108,7 @@ export default function App() {
       <div className="sidebar-bottom"><button className={cn("nav-item", page === "settings" && "active")} aria-current={page === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><RotateCcw size={18} /><span>设置与还原</span></button></div>
     </aside><main className={cn("main-content", page === "menu" && "menu-page", page === "home" && "home-main")} aria-busy={loading || busy}>
       {page === "home" ? <section className="home-page" aria-label="一键优化">
-        <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观</h1><p>舒服的字体，清爽的菜单，柔和的任务栏。</p></div>
+        <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观</h1><p>舒服的字体，清爽的菜单，柔和的磨砂效果。</p></div>
         {!shell && !loading && <button className="button secondary" onClick={() => void reload()}>重新读取</button>}
         <div className="home-actions"><button className="button primary optimize-button" disabled={blocked || !shell || shell.optimizationActive} title="首次使用需联网准备 Breeze。完成后自动刷新资源管理器，文件窗口可能关闭。" onClick={() => void mutate(() => optimizeSystem())}><Sparkles size={20} />{busy ? "正在处理…" : shell?.optimizationActive && !shell.optimizationPending ? "已优化" : "一键优化"}</button>
           {shell?.optimizationActive && <button className="button secondary home-restore" disabled={!desktop || busy || loading} onClick={() => void mutate(() => optimizeSystem(true))}><RotateCcw size={17} />{shell.optimizationPending ? "继续恢复" : "撤销优化"}</button>}
@@ -127,7 +127,15 @@ export default function App() {
         </>}</> : page === "menu" ? <>
           <div className="menu-page-heading"><h1>右键菜单</h1><button className="button primary menu-auto-button" disabled={blocked || !shell} onClick={() => void mutate(optimizeMenu)}>一键精简</button><div className="breeze-compact" title="首次开启需下载，关闭后注销恢复原菜单。"><span>Breeze 美化</span><Switch label="Breeze 美化" checked={shell?.breezeEnabled ?? false} disabled={blocked || !shell} onChange={value => void mutate(() => setTweak("breeze", value))} /></div></div>
           {!shell && loading ? <p className="empty-state">正在读取…</p> : !shell ? <button className="button secondary" onClick={() => void reload()}>重试</button> : <MenuManager items={shell.items} disabled={blocked} loading={busy || loading} onRefresh={() => void reload()} onToggle={(id, enabled) => void mutate(() => setMenuItem(id, enabled))} />}
-        </> : page === "details" ? <><h1>基础美化</h1>{!shell ? <div className="empty-state"><button className="button secondary" disabled={loading} onClick={() => void reload()}>重试</button></div> : <div className="settings-list"><div className="setting-row"><div><h2>透明任务栏</h2>{!shell.taskbarSupported && <p>需要 Windows 11。</p>}</div><Switch label="透明任务栏" checked={shell.taskbarEnabled} disabled={blocked || !shell.taskbarSupported} onChange={value => void mutate(() => setTweak("transparent-taskbar", value))} /></div>{shell.tweaks.map(tweak => <div className="setting-row" key={tweak.id}><div><h2>{tweak.label}</h2>{tweak.note && <p>{tweak.note}</p>}</div><Switch label={tweak.label} checked={tweak.enabled} disabled={blocked} onChange={value => void mutate(() => setTweak(tweak.id, value))} /></div>)}</div>}</> : <>
+        </> : page === "details" ? <><h1>基础美化</h1>{!shell ? <div className="empty-state"><button className="button secondary" disabled={loading} onClick={() => void reload()}>重试</button></div> : <>
+          <div className="settings-list">
+            {[{ id: "transparent-taskbar", label: "透明任务栏", enabled: shell.taskbarEnabled, supported: shell.taskbarSupported }, { id: "window-material", label: "窗口磨砂", enabled: shell.windowMaterialEnabled, supported: shell.windowMaterialSupported }, { id: "start-menu", label: "开始菜单美化", enabled: shell.startMenuEnabled, supported: shell.startMenuSupported }].map(effect => <div className="setting-row" key={effect.id}><div><h2>{effect.label}</h2>{!effect.supported && <p>当前 Windows 版本暂不支持。</p>}</div><Switch label={effect.label} checked={effect.enabled} disabled={blocked || !effect.supported} onChange={value => void mutate(() => setTweak(effect.id, value))} /></div>)}
+            {shell.tweaks.map(tweak => <div className="setting-row" key={tweak.id}><div><h2>{tweak.label}</h2>{tweak.note && <p>{tweak.note}</p>}</div><Switch label={tweak.label} checked={tweak.enabled} disabled={blocked} onChange={value => void mutate(() => setTweak(tweak.id, value))} /></div>)}
+          </div>
+          <section className="optional-section" aria-labelledby="optional-heading"><h2 id="optional-heading">可选功能</h2>
+            {shell.optionalTools.map(tool => <div className="setting-row" key={tool.id}><div><h3>{tool.label}</h3><p>{tool.note}</p></div><div className="optional-actions"><button className="button secondary" disabled={blocked || !tool.supported} onClick={() => void mutate(() => optionalTool(tool.id, tool.installed ? "open" : "install"))}>{tool.installed ? "打开" : "安装"}</button>{tool.managed && <RestoreButton label="还原" description={`卸载 WinGlow 安装的${tool.label}，恢复启用前的配置。`} disabled={blocked} onRestore={() => void mutate(() => optionalTool(tool.id, "remove"))} />}</div></div>)}
+          </section>
+        </>}</> : <>
           <h1>还原</h1><div className="restore-actions">
             <RestoreButton label="恢复默认字体" description="恢复默认字体映射和原来的显示参数，修改前自动备份。成功后重启资源管理器，请先完成文件复制。" disabled={!desktop || busy || loading} onRestore={() => void mutate(() => restoreFonts("default"))} />
             <RestoreButton label="还原右键菜单" description="还原本工具修改的菜单项与 Breeze 自启设置。关闭 Breeze 后需要注销。" disabled={!desktop || busy || loading} onRestore={() => void mutate(() => restoreCategory("menu"))} />
@@ -135,6 +143,7 @@ export default function App() {
             <RestoreButton label="撤销最近修改" description="回到最近一次操作前。成功后重启资源管理器，请先完成文件复制。" disabled={!desktop || busy || loading} onRestore={() => void mutate(() => restoreCategory("all-last"))} />
           </div><div className="repair-section"><h2>普通还原无效？</h2><p>扫描并修复 Windows 系统文件，再恢复默认字体。可能需要联网和重启。</p><RestoreButton label="扫描并修复" description="将运行 Windows 系统修复，可能需要较长时间。期间不要关闭程序，结束后请注销或重启。" disabled={!desktop || busy || loading} primary onRestore={() => void scanRepair()} /></div>
           <button className="text-button" disabled={!desktop || !bootstrap} onClick={() => { if (bootstrap) void openBackup().catch(error => setNotice({ text: String(error), error: true })); }}>打开备份</button>
+          <div className="dictionary-settings"><span>菜单识别库</span><button className="button secondary" disabled={blocked} onClick={() => void mutate(refreshMenuDictionary)}>检查更新</button></div>
         </>}
       {page !== "home" && (bootstrap?.pendingRecovery || shell?.pendingRecovery) && <div className="notice error" role="alert"><p>{bootstrap?.pendingRecovery || "上次修改没有完成，请先还原。"}</p><button className="button secondary" disabled={busy || !desktop} onClick={() => { navigate("settings"); }}>去还原</button></div>}
       <AppUpdates settings={page === "settings"} blocked={busy || repairing || !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending} />
