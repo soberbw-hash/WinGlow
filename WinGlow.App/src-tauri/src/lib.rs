@@ -7,6 +7,7 @@ mod explorer;
 mod font_engine;
 mod legacy;
 mod menu;
+mod menu_diagnostics;
 mod menu_dictionary;
 mod menu_icon;
 mod menu_policy;

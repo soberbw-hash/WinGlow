@@ -511,6 +511,7 @@ mod tests {
             if let Some(v) = &e.value {
                 let kind = match v.kind {
                     1 => winreg::enums::REG_SZ,
+                    2 => winreg::enums::REG_EXPAND_SZ,
                     4 => winreg::enums::REG_DWORD,
                     7 => winreg::enums::REG_MULTI_SZ,
                     _ => bail!("unsupported test value"),
@@ -580,6 +581,52 @@ mod tests {
         write_and_verify(&mut store, &j.before).unwrap();
         assert_eq!(store.read(&c).unwrap(), None);
         assert_eq!(store.read(&b).unwrap(), previous[1].value);
+        fs::remove_dir_all(d).unwrap();
+    }
+    #[test]
+    fn handler_reference_transaction_restores_original_guid_bytes_and_absence() {
+        let mut store = IsolatedRegistry::new();
+        let guid = "{09A47860-11B0-4DA5-AFA5-26D86198A780}";
+        let handler = slot(
+            Scope::MenuHandler {
+                machine: false,
+                path: "Folder\\shellex\\ContextMenuHandlers\\WinGlowFixture".into(),
+                guid: guid.into(),
+            },
+            "",
+        );
+        let blocked = slot(Scope::BlockedExtensions, guid);
+        let mut original = string(&guid.to_lowercase());
+        original.kind = 2; // Preserve REG_EXPAND_SZ as well as spelling, not just the text.
+        store
+            .write(&Entry {
+                slot: handler.clone(),
+                value: Some(original.clone()),
+            })
+            .unwrap();
+        let d = dir();
+        execute(
+            &mut store,
+            &d,
+            "menu:fixture",
+            vec![
+                crate::menu::visibility_entry(handler.clone(), false),
+                Entry {
+                    slot: blocked.clone(),
+                    value: Some(string("")),
+                },
+            ],
+            || Ok(()),
+        )
+        .unwrap();
+        assert_eq!(
+            store.read(&handler).unwrap(),
+            Some(string(&format!("-{guid}")))
+        );
+        let snapshot = read_journal(&d).unwrap();
+        write_and_verify(&mut store, &snapshot.before).unwrap();
+        assert_eq!(store.read(&handler).unwrap(), Some(original));
+        assert_eq!(store.read(&blocked).unwrap(), None);
         fs::remove_dir_all(d).unwrap();
     }
     #[test]

@@ -121,6 +121,30 @@ fn registration_roots() -> Vec<(String, String)> {
     }
     roots
 }
+pub fn valid_handler_path(path: &str) -> bool {
+    path.split_once("\\shellex\\ContextMenuHandlers\\")
+        .is_some_and(|(class, name)| {
+            (ROOTS.iter().any(|(root, _)| class == *root)
+                || valid_association_class(class)
+                || class
+                    .strip_prefix("SystemFileAssociations\\")
+                    .is_some_and(|e| FILE_TYPES.iter().any(|(extension, _)| e == *extension)))
+                && !name.is_empty()
+                && name.len() <= 200
+                && !name.contains(['\\', '/', '\0'])
+        })
+}
+fn handler_guid(raw: &str) -> Option<(String, bool)> {
+    let (value, disabled) = raw.strip_prefix('-').map_or((raw, false), |s| (s, true));
+    uuid::Uuid::parse_str(value.trim_matches(['{', '}']))
+        .ok()
+        .map(|guid| {
+            (
+                format!("{{{}}}", guid.hyphenated()).to_uppercase(),
+                disabled,
+            )
+        })
+}
 pub fn valid_command_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() < 200
@@ -533,18 +557,36 @@ pub(crate) fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> 
                 for name in handlers.enum_keys() {
                     let name = name?;
                     let key = handlers.open_subkey_with_flags(&name, KEY_READ | KEY_WOW64_64KEY)?;
-                    let guid = key.get_value::<String, _>("").unwrap_or(name.clone());
-                    if uuid::Uuid::parse_str(guid.trim_matches(['{', '}'])).is_err() {
+                    let raw_guid = key.get_value::<String, _>("").unwrap_or(name.clone());
+                    let Some((guid, disabled)) = handler_guid(&raw_guid) else {
                         continue;
-                    }
-                    let slot = registry::slot(Scope::BlockedExtensions, guid.clone());
+                    };
+                    let slot = registry::slot(
+                        Scope::MenuHandler {
+                            machine,
+                            path: format!("{class}\\shellex\\ContextMenuHandlers\\{name}"),
+                            guid: guid.clone(),
+                        },
+                        "",
+                    );
+                    let global_id = id(&Scope::BlockedExtensions, &guid);
+                    let enabled = !disabled
+                        && crate::registry::WindowsRegistry
+                            .read(&registry::slot(Scope::BlockedExtensions, &guid))?
+                            .is_none()
+                        && crate::registry::WindowsRegistry
+                            .read(&registry::slot(Scope::MachineBlockedExtensions, &guid))?
+                            .is_none();
                     // One CLSID may appear in several categories; expose a single global switch.
-                    if let Some((item, _)) = items.iter_mut().find(|(_, s)| s == &slot) {
+                    if let Some((item, _)) = items.iter_mut().find(|(i, _)| i.id == global_id) {
                         for target in targets(group) {
                             if !item.targets.contains(&target) {
                                 item.targets.push(target);
                             }
                         }
+                        let mut reference = item.clone();
+                        reference.enabled = enabled;
+                        child_slots.push((reference, slot));
                         continue;
                     }
                     // CLSID metadata is merged for the current user; the registration
@@ -587,13 +629,9 @@ pub(crate) fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> 
                         icon_data_url = Some(icon);
                         icon_source = Some("菜单识别库".into());
                     }
-                    let enabled = crate::registry::WindowsRegistry.read(&slot)?.is_none()
-                        && crate::registry::WindowsRegistry
-                            .read(&registry::slot(Scope::MachineBlockedExtensions, &guid))?
-                            .is_none();
                     items.push((
                         MenuItem {
-                            id: id(&slot.scope, &guid),
+                            id: global_id,
                             label: display_label,
                             auto_hide: crate::menu_policy::should_hide(
                                 &label,
@@ -625,6 +663,20 @@ pub(crate) fn scan_impl(icons: bool) -> Result<Vec<(MenuItem, registry::Slot)>> 
     items.extend(child_slots);
     Ok(items)
 }
+pub(crate) fn visibility_entry(slot: registry::Slot, enabled: bool) -> Entry {
+    let value = if let Scope::MenuHandler { guid, .. } = &slot.scope {
+        Some(registry::string(&if enabled {
+            guid.clone()
+        } else {
+            format!("-{guid}")
+        }))
+    } else if enabled {
+        None
+    } else {
+        Some(registry::string(""))
+    };
+    Entry { slot, value }
+}
 pub fn resolve(id: &str, enabled: bool) -> Result<Vec<Entry>> {
     let slots: Vec<_> = scan_impl(false)?
         .into_iter()
@@ -634,20 +686,25 @@ pub fn resolve(id: &str, enabled: bool) -> Result<Vec<Entry>> {
     if slots.is_empty() {
         bail!("菜单项已变化，请刷新后再试。");
     }
+    let guid = slots.iter().find_map(|s| match &s.scope {
+        Scope::MenuHandler { guid, .. } => Some(guid.clone()),
+        _ => None,
+    });
     let mut entries: Vec<_> = slots
         .into_iter()
-        .map(|slot| Entry {
-            slot,
+        .map(|slot| visibility_entry(slot, enabled))
+        .collect();
+    if let Some(guid) = guid {
+        entries.push(Entry {
+            slot: registry::slot(Scope::BlockedExtensions, &guid),
             value: if enabled {
                 None
             } else {
                 Some(registry::string(""))
             },
-        })
-        .collect();
-    if enabled && entries[0].slot.scope == Scope::BlockedExtensions {
-        let machine = registry::slot(Scope::MachineBlockedExtensions, &entries[0].slot.name);
-        if crate::registry::WindowsRegistry.read(&machine)?.is_some() {
+        });
+        let machine = registry::slot(Scope::MachineBlockedExtensions, &guid);
+        if enabled && crate::registry::WindowsRegistry.read(&machine)?.is_some() {
             entries.push(Entry {
                 slot: machine,
                 value: None,
@@ -661,6 +718,7 @@ pub fn needs_admin(id: &str) -> Result<bool> {
         matches!(
             e.slot.scope,
             Scope::MenuVerb { machine: true, .. }
+                | Scope::MenuHandler { machine: true, .. }
                 | Scope::CommandStoreVerb { .. }
                 | Scope::MachineBlockedExtensions
         )
@@ -669,6 +727,39 @@ pub fn needs_admin(id: &str) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn handlers_keep_identity_when_disabled_and_limit_writes_to_references() {
+        let guid = "{09A47860-11B0-4DA5-AFA5-26D86198A780}";
+        assert_eq!(handler_guid(guid), Some((guid.into(), false)));
+        assert_eq!(handler_guid(&format!("-{guid}")), Some((guid.into(), true)));
+        assert!(handler_guid("--not-a-guid").is_none());
+        assert!(valid_handler_path(
+            "Folder\\shellex\\ContextMenuHandlers\\EPP"
+        ));
+        assert!(!valid_handler_path(
+            "CLSID\\shellex\\ContextMenuHandlers\\x"
+        ));
+        assert!(!valid_handler_path(
+            "Folder\\shellex\\ContextMenuHandlers\\x\\InprocServer32"
+        ));
+        let slot = registry::slot(
+            Scope::MenuHandler {
+                machine: true,
+                path: "Folder\\shellex\\ContextMenuHandlers\\EPP".into(),
+                guid: guid.into(),
+            },
+            "",
+        );
+        registry::validate_slot(&slot).unwrap();
+        assert_eq!(
+            visibility_entry(slot.clone(), false).value,
+            Some(registry::string(&format!("-{guid}")))
+        );
+        assert_eq!(
+            visibility_entry(slot, true).value,
+            Some(registry::string(guid))
+        );
+    }
     #[test]
     fn association_paths_are_limited_to_leaf_classes_and_keep_core_verbs_protected() {
         assert!(valid_verb_path("Acrobat.Document.DC\\shell\\custom"));

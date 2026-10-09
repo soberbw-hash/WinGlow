@@ -352,6 +352,22 @@ pub fn handle_cli() -> bool {
         }
         return true;
     }
+    if args.iter().any(|a| a == "--verify-native-menu") {
+        if let Err(e) = crate::menu_diagnostics::run() {
+            eprintln!("{e:#}");
+        }
+        return true;
+    }
+    if args.iter().any(|a| a == "--compact-menu") {
+        let report = match run(Operation::OptimizeMenu) {
+            Ok(result) => serde_json::json!({"success":true,"message":result.message}),
+            Err(e) => serde_json::json!({"success":false,"error":format!("{e:#}")}),
+        };
+        if let Ok(root) = font_engine::data_root() {
+            let _ = fs::write(root.join("menu-compact-result.json"), report.to_string());
+        }
+        return true;
+    }
     if args.iter().any(|a| a == "--verify-menu") {
         let result = (|| -> Result<()> {
             let dictionary_update = crate::menu_dictionary::refresh();

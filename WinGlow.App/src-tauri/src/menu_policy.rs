@@ -1,7 +1,8 @@
 //! Deterministic provenance-based cleanup. Unknown entries remain enabled.
 use crate::{
     menu,
-    registry::{self, Entry, Scope, Slot},
+    registry::{Entry, Scope, Slot},
+    transaction::ValueStore,
 };
 use anyhow::Result;
 use windows::{
@@ -153,9 +154,20 @@ fn confirmed_third_party(name: &str, source: &str) -> bool {
     // Dynamic archive handlers expose essential compress/extract actions together.
     // Keep them until their real child controls can be identified; never disable
     // the whole handler just to remove ancillary archive actions.
-    if ["360zip", "360 压缩", "czip", "7-zip", "7zip", "winrar"]
-        .iter()
-        .any(|x| explicit.contains(x))
+    if [
+        "360zip",
+        "360 zip",
+        "360压缩",
+        "360 压缩",
+        "czip",
+        "7-zip",
+        "7zip",
+        "7 zip",
+        "7z.dll",
+        "winrar",
+    ]
+    .iter()
+    .any(|x| explicit.contains(x))
     {
         return false;
     }
@@ -247,7 +259,9 @@ fn confirmed_third_party(name: &str, source: &str) -> bool {
 }
 pub fn should_hide(name: &str, slot: &Slot, key: &RegKey, server: Option<&RegKey>) -> bool {
     let source = match slot.scope {
-        Scope::BlockedExtensions => server.and_then(|k| k.get_value::<String, _>("").ok()),
+        Scope::BlockedExtensions | Scope::MenuHandler { .. } => {
+            server.and_then(|k| k.get_value::<String, _>("").ok())
+        }
         _ => key
             .open_subkey("command")
             .ok()
@@ -268,13 +282,7 @@ fn plan_from(items: Vec<(crate::models::MenuItem, Slot)>) -> Vec<Entry> {
         if item.auto_hide {
             if let Some(members) = slots.get(&item.id) {
                 for slot in members {
-                    entries.insert(
-                        slot.clone(),
-                        Entry {
-                            slot: slot.clone(),
-                            value: Some(registry::string("")),
-                        },
-                    );
+                    entries.insert(slot.clone(), menu::visibility_entry(slot.clone(), false));
                 }
             }
         } else {
@@ -299,13 +307,25 @@ fn plan_from(items: Vec<(crate::models::MenuItem, Slot)>) -> Vec<Entry> {
     entries.into_values().collect()
 }
 pub fn plan() -> Result<Vec<Entry>> {
-    let mut entries = plan_from(menu::scan_impl(false)?);
+    let items = menu::scan_impl(false)?;
+    let mut entries = plan_from(items.clone());
+    // Repair legacy OFF rows too: the Blocked list alone did not unregister their
+    // live folder/file references. This only enforces an existing hidden intent.
+    for (item, slot) in items {
+        if !item.enabled && matches!(slot.scope, Scope::MenuHandler { .. }) {
+            let entry = menu::visibility_entry(slot, false);
+            if crate::registry::WindowsRegistry.read(&entry.slot)? != entry.value {
+                entries.push(entry);
+            }
+        }
+    }
     entries.extend(crate::archive_filter::plan()?);
     Ok(entries)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registry;
     #[test]
     fn cleanup_only_subtracts_and_is_idempotent_after_manual_hiding() {
         fn item(id: &str, enabled: bool, hide: bool) -> crate::models::MenuItem {

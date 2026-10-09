@@ -42,6 +42,12 @@ WinGlow 改名保留四类兼容记录：旧用户数据目录、原应用 ident
 
 ## 应用与恢复
 
+1.1.2 的扩展开关同时管理扫描到的所有 HKCU/HKLM ContextMenuHandlers 引用，停用时在默认 CLSID 前加 `-`，启用时恢复 CLSID；保留 COM 类和其它软件配置。旧 Blocked-only 的 OFF 状态在下一次一键精简时补全停用引用，禁止重新启用用户隐藏的项目。引用的原始类型、字节和缺失状态包含在原有事务中，菜单还原与撤销均覆盖新增范围。成功切换、精简和菜单还原后，通过现有任务栏保护流程刷新当前 Explorer，避免已加载的处理器继续留在旧进程中。
+
+压缩扩展按 360/CZIP、7-Zip、WinRAR 等来源识别并保留。Breeze 过滤器保留已有的一个通用压缩及一个解压命令，删除快捷格式、邮件和重复的“其他压缩命令”。普通文件/文件夹仅保留其实际具备的压缩命令；压缩包才具备解压命令，不生成无效的解压入口。关闭 Breeze 时原生压缩扩展仍可用，但不会执行 Breeze 的细粒度过滤。
+
+`--verify-native-menu` 在独立进程中通过 IShellItem / IContextMenu 查询自有文件夹、文本和空 ZIP 的原生菜单，输出 `native-menu-verification.json`，不调用菜单命令。它不经过 Breeze 的渲染过滤，不能当作 Breeze 的视觉验收。`--compact-menu` 执行和界面一键精简相同的备份、授权、修改与刷新流程，结果保存在 `menu-compact-result.json`。
+
 普通界面采用 asInvoker。字体应用/导入/恢复与 HKLM 菜单修改时启动同一 EXE 的管理员 helper。当前用户设置和桌面 COM 操作直接运行。Breeze 启用拒绝管理员进程。helper 只接受 UUID 请求编号，按固定用户数据目录读取结构化操作；字体文件仍需完整解析。多窗口修改由 Global 命名 mutex 串行化；保持旧 mutex 名称，避免旧版与 WinGlow 同时修改系统。
 
 资源先校验并准备到 `%PROGRAMDATA%\WinGlow\Fonts`，不会覆盖 `C:\Windows\Fonts`。内容哈希避免覆盖其它字体文件。资源准备失败不写注册表。

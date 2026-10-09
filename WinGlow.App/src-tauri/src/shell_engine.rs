@@ -276,6 +276,7 @@ pub fn restore(category: &str) -> Result<ActionResult> {
                 "menu" => matches!(
                     entry.slot.scope,
                     Scope::MenuVerb { .. }
+                        | Scope::MenuHandler { .. }
                         | Scope::CommandStoreVerb { .. }
                         | Scope::BlockedExtensions
                         | Scope::MachineBlockedExtensions

@@ -18,3 +18,18 @@ nested.items[0].value.submenu = () => {};
 listener({ menu: nested }); nested.items[0].value.submenu(children);
 assert.deepEqual(children.items.filter(i => !i.removed).map(i => i.value.name), ["Add to archive...", "Extract files..."]);
 console.log("Archive filtering passed: native actions preserved, extra actions hidden, nested menu supported, no actions added.");
+for (const [provider, labels] of [
+  ["7-Zip", ["Add to archive...", 'Add to "sample.7z"', 'Add to "sample.zip"', "Compress and email", "Extract files...", "Extract here", 'Extract to "sample\\"']],
+  ["WinRAR", ["添加到压缩包...", '添加到 "sample.rar"', "压缩并邮件", "解压到...", "解压到当前文件夹", '解压到 "sample\\"']],
+  ["CZIP", ["添加到压缩文件...", '添加到 "sample.zip"', "解压到...", "解压到当前文件夹"]],
+]) {
+  const parent = menu([provider]); const child = menu(labels);
+  parent.items[0].value.submenu = () => {};
+  listener({ menu: parent }); parent.items[0].value.submenu(child);
+  assert.deepEqual(child.items.filter(i => !i.removed).map(i => i.value.name), [labels[0], labels.find(l => /^(Extract files|解压到\.\.\.)/.test(l))], provider);
+}
+const folder = menu(["添加到压缩文件...", '添加到 "folder.zip"', "其他压缩命令", "复制"]);
+folder.items[2].value.submenu = () => {};
+listener({ menu: folder });
+assert.deepEqual(folder.items.filter(i => !i.removed).map(i => i.value.name), ["添加到压缩文件...", "复制"]);
+console.log("360/CZIP, 7-Zip and WinRAR keep compression/extraction; folder duplicate submenu removed.");

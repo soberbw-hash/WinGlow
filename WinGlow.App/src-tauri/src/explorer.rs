@@ -33,8 +33,11 @@ use windows::{
 pub fn needed(operation: &Operation) -> bool {
     matches!(
         operation,
-        Operation::Apply { .. } | Operation::Restore { .. }
-    ) || matches!(operation, Operation::RestoreCategory { category } if category == "all-last" || category == "details")
+        Operation::Apply { .. }
+            | Operation::Restore { .. }
+            | Operation::Menu { .. }
+            | Operation::OptimizeMenu
+    ) || matches!(operation, Operation::RestoreCategory { category } if category == "all-last" || category == "details" || category == "menu")
         || matches!(operation, Operation::Toggle { id, .. } if id == "file-extensions")
 }
 

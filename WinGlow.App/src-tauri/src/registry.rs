@@ -20,8 +20,18 @@ pub enum Scope {
     Explorer,
     IconOverrides,
     DesktopView,
-    MenuVerb { machine: bool, path: String },
-    CommandStoreVerb { name: String },
+    MenuVerb {
+        machine: bool,
+        path: String,
+    },
+    MenuHandler {
+        machine: bool,
+        path: String,
+        guid: String,
+    },
+    CommandStoreVerb {
+        name: String,
+    },
     BlockedExtensions,
     MachineBlockedExtensions,
     Startup,
@@ -51,7 +61,9 @@ impl Scope {
                 r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons".into()
             }
             Self::DesktopView => r"Software\Microsoft\Windows\Shell\Bags\1\Desktop".into(),
-            Self::MenuVerb { path, .. } => format!(r"Software\Classes\{path}"),
+            Self::MenuVerb { path, .. } | Self::MenuHandler { path, .. } => {
+                format!(r"Software\Classes\{path}")
+            }
             Self::CommandStoreVerb { name } => format!(
                 r"Software\Microsoft\Windows\CurrentVersion\Explorer\CommandStore\shell\{name}"
             ),
@@ -77,6 +89,7 @@ impl Scope {
                     | Self::Links
                     | Self::Fonts
                     | Self::MenuVerb { machine: true, .. }
+                    | Self::MenuHandler { machine: true, .. }
             ) {
                 HKEY_LOCAL_MACHINE
             } else {
@@ -206,6 +219,11 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
         Scope::VisualConfig => crate::visual::CONFIG_NAMES.contains(&slot.name.as_str()),
         Scope::MenuVerb { path, .. } => {
             crate::menu::valid_verb_path(path) && slot.name == "LegacyDisable"
+        }
+        Scope::MenuHandler { path, guid, .. } => {
+            crate::menu::valid_handler_path(path)
+                && slot.name.is_empty()
+                && uuid::Uuid::parse_str(guid.trim_matches(['{', '}'])).is_ok()
         }
         Scope::CommandStoreVerb { name } => {
             crate::menu::valid_command_name(name) && slot.name == "LegacyDisable"
