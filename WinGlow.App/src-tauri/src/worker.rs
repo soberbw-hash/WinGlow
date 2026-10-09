@@ -15,8 +15,8 @@ use windows::{
         UI::{
             Input::KeyboardAndMouse::{GetAsyncKeyState, VK_SHIFT},
             Shell::{
-                IsUserAnAdmin, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
-                ShellExecuteExW,
+                IsUserAnAdmin, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SEE_MASK_NOCLOSEPROCESS,
+                SHELLEXECUTEINFOW, ShellExecuteExW,
             },
             WindowsAndMessaging::{MB_ICONERROR, MB_ICONINFORMATION, MB_OK, MessageBoxW, SW_HIDE},
         },
@@ -69,7 +69,30 @@ pub fn replace_file(source: &Path, target: &Path) -> Result<()> {
     .context("保存字体记录失败。")
 }
 
+fn launch_directory(executable: &Path) -> Result<&Path> {
+    if !executable.is_file() {
+        bail!("未找到 WinGlow 程序，请重新打开软件或重新安装。");
+    }
+    let directory = executable
+        .parent()
+        .filter(|p| p.is_dir())
+        .ok_or_else(|| anyhow!("WinGlow 程序目录不可用，请重新打开软件或重新安装。"))?;
+    Ok(directory)
+}
+
+fn launch_error(error: windows::core::Error) -> anyhow::Error {
+    if error.code().0 == 0x800704C7u32 as i32 {
+        anyhow!("操作已取消，未进行修改。需要管理员权限才能完成此操作。")
+    } else {
+        anyhow!("无法启动管理员修改进程，请重新打开 WinGlow 后重试：{error}")
+    }
+}
+
 fn elevate(nonce: &str) -> Result<()> {
+    launch_worker(nonce, false)
+}
+
+fn launch_worker(nonce: &str, probe: bool) -> Result<()> {
     // ShellExecuteEx is called on a blocking pool thread, which has no COM apartment.
     let com = unsafe {
         windows::Win32::System::Com::CoInitializeEx(
@@ -88,22 +111,36 @@ fn elevate(nonce: &str) -> Result<()> {
         }
     }
     let _com = ComGuard(com.is_ok());
-    let exe = wide(env::current_exe()?);
+    // Packaged launchers can virtualize AppData. The elevation broker sees the
+    // physical filesystem, so resolve the loaded image through its file handle
+    // and use a Shell-compatible path without an unnecessary verbatim prefix.
+    let executable = dunce::canonicalize(env::current_exe()?)
+        .context("无法确定 WinGlow 程序的真实位置，请重新打开软件或重新安装。")?;
+    // Shell's runas can fail even when lpFile exists if the inherited CWD is
+    // invalid (for example a launcher supplied a damaged Unicode path).
+    // Resolve both inputs before invoking the shell; never inherit its CWD.
+    let directory = wide(launch_directory(&executable)?);
+    let exe = wide(&executable);
     let verb = wide("runas");
-    let args = wide(format!("--font-worker {nonce}"));
+    let command = if probe {
+        "--verify-worker-child"
+    } else {
+        "--font-worker"
+    };
+    let args = wide(format!("{command} {nonce}"));
     let mut info = SHELLEXECUTEINFOW {
         cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
-        fMask: SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC,
+        fMask: SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI,
         lpVerb: PCWSTR(verb.as_ptr()),
         lpFile: PCWSTR(exe.as_ptr()),
         lpParameters: PCWSTR(args.as_ptr()),
+        lpDirectory: PCWSTR(directory.as_ptr()),
         nShow: SW_HIDE.0,
         ..Default::default()
     };
-    unsafe { ShellExecuteExW(&mut info) }
-        .map_err(|e| anyhow!("未获得修改字体所需的管理员授权：{e}"))?;
+    unsafe { ShellExecuteExW(&mut info) }.map_err(launch_error)?;
     if info.hProcess.is_invalid() {
-        bail!("无法等待字体修改进程。");
+        bail!("无法等待管理员修改进程。");
     }
     let wait = unsafe { WaitForSingleObject(info.hProcess, INFINITE) };
     let mut code = 1;
@@ -260,6 +297,61 @@ fn show_message(text: &str, error: bool) {
 
 pub fn handle_cli() -> bool {
     let args: Vec<_> = env::args().collect();
+    if let Some(index) = args.iter().position(|a| a == "--verify-worker-child") {
+        let result = (|| -> Result<()> {
+            if !unsafe { IsUserAnAdmin().as_bool() } {
+                bail!("验证进程未获得管理员权限。");
+            }
+            let nonce = args
+                .get(index + 1)
+                .ok_or_else(|| anyhow!("缺少验证标识。"))?;
+            let dir = request_dir(nonce)?;
+            if fs::read(dir.join("probe.json"))? != b"WinGlow worker launch probe v1" {
+                bail!("验证请求无效。");
+            }
+            transaction::persist_new(
+                &dir.join("probe-result.json"),
+                &serde_json::to_vec(&serde_json::json!({
+                    "admin":true, "workingDirectory":env::current_dir()?, "executable":env::current_exe()?
+                }))?,
+            )?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            eprintln!("{error:#}");
+        }
+        return true;
+    }
+    if args.iter().any(|a| a == "--verify-worker-launch") {
+        let result = (|| -> Result<serde_json::Value> {
+            let nonce = uuid::Uuid::new_v4().to_string();
+            let dir = request_dir(&nonce)?;
+            fs::create_dir_all(&dir)?;
+            transaction::persist_new(&dir.join("probe.json"), b"WinGlow worker launch probe v1")?;
+            launch_worker(&nonce, true)?;
+            let result: serde_json::Value =
+                serde_json::from_slice(&fs::read(dir.join("probe-result.json"))?)?;
+            let _ = fs::remove_file(dir.join("probe.json"));
+            let _ = fs::remove_file(dir.join("probe-result.json"));
+            let _ = fs::remove_dir(dir);
+            Ok(result)
+        })();
+        let report = match result {
+            Ok(child) => {
+                serde_json::json!({"success":true,"child":child,"systemSettingsChanged":false})
+            }
+            Err(error) => {
+                serde_json::json!({"success":false,"error":format!("{error:#}"),"systemSettingsChanged":false})
+            }
+        };
+        if let Ok(root) = font_engine::data_root() {
+            let _ = fs::write(
+                root.join("worker-launch-verification.json"),
+                report.to_string(),
+            );
+        }
+        return true;
+    }
     if args.iter().any(|a| a == "--verify-menu") {
         let result = (|| -> Result<()> {
             let dictionary_update = crate::menu_dictionary::refresh();
@@ -362,4 +454,37 @@ pub fn handle_cli() -> bool {
         return true;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_launch_uses_existing_executable_directory_with_unicode_and_spaces() {
+        let directory = env::temp_dir().join(format!("WinGlow 启动测试 {}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let executable = directory.join("WinGlow.exe");
+        fs::write(&executable, b"test fixture").unwrap();
+        assert_eq!(launch_directory(&executable).unwrap(), directory);
+        assert!(launch_directory(&directory).is_err());
+        fs::remove_file(&executable).unwrap();
+        assert!(launch_directory(&executable).is_err());
+        fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
+    fn cancellation_and_launch_failure_have_distinct_operation_neutral_messages() {
+        let cancelled = launch_error(windows::core::Error::from_hresult(windows::core::HRESULT(
+            0x800704C7u32 as i32,
+        )))
+        .to_string();
+        let missing_path = launch_error(windows::core::Error::from_hresult(
+            windows::core::HRESULT(0x80070003u32 as i32),
+        ))
+        .to_string();
+        assert!(cancelled.contains("操作已取消"));
+        assert!(!missing_path.contains("操作已取消"));
+        assert!(!cancelled.contains("字体") && !missing_path.contains("字体"));
+    }
 }

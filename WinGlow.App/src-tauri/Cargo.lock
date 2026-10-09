@@ -5339,12 +5339,13 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "winglow"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
  "chrono",
  "dirs 6.0.0",
+ "dunce",
  "png 0.18.1",
  "reqwest 0.12.28",
  "semver",
