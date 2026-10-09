@@ -3,13 +3,14 @@ import { menu_controller, fs, breeze } from "mshell";
 // Rebuilt from OFF switches in the same transaction as the registry changes.
 const hiddenRules = /*WinGlowRules*/ { exact: [], patterns: [] };
 const normalize = value => String(value ?? "").split("\t")[0].replace(/\([&＆][^)]*\)|[&＆]|[.。…\s]/g, "").toLowerCase();
+const enabledNames = new Set((hiddenRules.enabled ?? []).map(normalize));
 const hiddenNames = new Set(hiddenRules.exact.map(normalize));
 const hiddenPatterns = hiddenRules.patterns.map(pattern => new RegExp(pattern, "i"));
 function hideDisabled(menu) {
   for (const item of menu.items) {
     const data = item.data();
     const names = [data.name, data.origin_name].map(normalize);
-    if (names.some(name => hiddenNames.has(name) || hiddenPatterns.some(pattern => pattern.test(name)))) {
+    if (!names.some(name => enabledNames.has(name)) && names.some(name => hiddenNames.has(name) || hiddenPatterns.some(pattern => pattern.test(name)))) {
       item.remove();
     } else if (typeof data.submenu === "function") {
       const original = data.submenu;

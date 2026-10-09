@@ -37,6 +37,30 @@ pub fn plan() -> Result<Vec<Entry>> {
 }
 pub fn plan_with(changes: &[Entry]) -> Result<Vec<Entry>> {
     let items = crate::menu::scan_impl(false)?;
+    let rules = display_rules(items, changes);
+    let script = String::from_utf8(SCRIPT.to_vec())?.replace(
+        "/*WinGlowRules*/ { exact: [], patterns: [] }",
+        &serde_json::to_string(&rules)?,
+    );
+    let value = StoredValue {
+        kind: 3,
+        bytes: script.into_bytes(),
+    };
+    if value.bytes.len() > 65536 {
+        bail!("菜单过滤规则超过备份上限，未修改。");
+    }
+    if read()?.as_ref() == Some(&value) {
+        return Ok(vec![]);
+    }
+    Ok(vec![Entry {
+        slot: crate::registry::slot(Scope::ArchiveFilter, "WinGlow-ArchiveFilter.js"),
+        value: Some(value),
+    }])
+}
+fn display_rules(
+    items: Vec<(crate::models::MenuItem, crate::registry::Slot)>,
+    changes: &[Entry],
+) -> serde_json::Value {
     let mut disabled = Vec::new();
     let mut enabled = std::collections::BTreeSet::new();
     for (item, slot) in items {
@@ -112,23 +136,111 @@ pub fn plan_with(changes: &[Entry]) -> Result<Vec<Entry>> {
     if off(&["quark", "夸克"]) && off(&["百度网盘", "baidu", "yunshellext"]) {
         patterns.push("^(?:自动备份(?:该|此)?文件夹|用手机打开|发送到手机|同步至其[它他]设备)$");
     }
-    let rules = serde_json::json!({"exact":exact,"patterns":patterns});
-    let script = String::from_utf8(SCRIPT.to_vec())?.replace(
-        "/*WinGlowRules*/ { exact: [], patterns: [] }",
-        &serde_json::to_string(&rules)?,
-    );
-    let value = StoredValue {
-        kind: 3,
-        bytes: script.into_bytes(),
-    };
-    if value.bytes.len() > 65536 {
-        bail!("菜单过滤规则超过备份上限，未修改。");
+    serde_json::json!({"exact":exact,"patterns":patterns,"enabled":enabled})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn item(
+        label: &str,
+        enabled: bool,
+        scope: Scope,
+    ) -> (crate::models::MenuItem, crate::registry::Slot) {
+        (
+            crate::models::MenuItem {
+                id: label.into(),
+                label: label.into(),
+                raw_label: label.into(),
+                enabled,
+                group: "文件夹".into(),
+                kind: "当前用户".into(),
+                targets: vec!["文件夹".into()],
+                auto_hide: false,
+                menu_level: "direct".into(),
+                children: vec![],
+                sub_items: vec![],
+                visibility_note: None,
+                icon_data_url: None,
+                icon_source: None,
+            },
+            crate::registry::slot(scope, "LegacyDisable"),
+        )
     }
-    if read()?.as_ref() == Some(&value) {
-        return Ok(vec![]);
+    fn verb() -> Scope {
+        Scope::MenuVerb {
+            machine: false,
+            path: "Directory\\shell\\WorkBuddy".into(),
+        }
     }
-    Ok(vec![Entry {
-        slot: crate::registry::slot(Scope::ArchiveFilter, "WinGlow-ArchiveFilter.js"),
-        value: Some(value),
-    }])
+    fn handler() -> Scope {
+        Scope::MenuHandler {
+            machine: false,
+            path: "Directory\\shellex\\ContextMenuHandlers\\Quark".into(),
+            guid: "{D7D43EA6-BCE2-489C-9A70-9027A42E1EFD}".into(),
+        }
+    }
+    #[test]
+    fn rules_use_post_transaction_state_for_manual_switches() {
+        let (before, slot) = item("用 WorkBuddy 打开", true, verb());
+        let disabled = display_rules(
+            vec![(before, slot.clone())],
+            &[crate::menu::visibility_entry(slot.clone(), false)],
+        );
+        assert!(
+            disabled["exact"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value == "用 WorkBuddy 打开")
+        );
+        let (before, _) = item("用 WorkBuddy 打开", false, verb());
+        let enabled = display_rules(
+            vec![(before, slot.clone())],
+            &[crate::menu::visibility_entry(slot, true)],
+        );
+        assert!(enabled["patterns"].as_array().unwrap().is_empty());
+        assert!(enabled["exact"].as_array().unwrap().is_empty());
+        assert_eq!(enabled["enabled"][0], "用 WorkBuddy 打开");
+    }
+    #[test]
+    fn handler_projection_and_cloud_aliases_require_all_related_sources_off() {
+        let (quark, mut slot) = item("夸克网盘", true, handler());
+        slot.name.clear();
+        let (baidu, baidu_slot) = item("百度网盘", false, Scope::BlockedExtensions);
+        let off = display_rules(
+            vec![
+                (quark.clone(), slot.clone()),
+                (baidu.clone(), baidu_slot.clone()),
+            ],
+            &[crate::menu::visibility_entry(slot.clone(), false)],
+        );
+        assert!(
+            off["patterns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|pattern| pattern.as_str().unwrap().contains("发送到手机"))
+        );
+        let on = display_rules(vec![(quark, slot), (baidu, baidu_slot)], &[]);
+        assert!(
+            !on["patterns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|pattern| pattern.as_str().unwrap().contains("发送到手机"))
+        );
+    }
+    #[test]
+    fn enabled_titles_are_retained_for_display_collision_protection() {
+        let rules = display_rules(
+            vec![
+                item("Open Project", false, verb()),
+                item("OPEN PROJECT(&P)", true, verb()),
+            ],
+            &[],
+        );
+        assert_eq!(rules["enabled"][0], "OPEN PROJECT(&P)");
+        assert_eq!(rules["exact"][0], "Open Project");
+    }
 }

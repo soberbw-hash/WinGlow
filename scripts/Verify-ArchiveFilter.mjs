@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import assert from "node:assert/strict";
-const code = readFileSync(new URL("../WinGlow.App/src-tauri/src/archive_filter.js", import.meta.url), "utf8").replace(/import .*;\n/, "").replace("export function", "function");
+const code = readFileSync(new URL("../WinGlow.App/src-tauri/src/archive_filter.js", import.meta.url), "utf8").replace(/import .*;\r?\n/, "").replace("export function", "function");
 let listener;
 vm.runInNewContext(code, { menu_controller: { add_menu_listener: fn => { listener = fn; } } });
 function menu(names) {
@@ -59,3 +59,8 @@ lazyParent.items[0].value.submenu = () => {};
 off({ menu: lazyParent }); lazyParent.items[0].value.submenu(lazyChild);
 assert.deepEqual(lazyChild.items.filter(item => !item.removed).map(item => item.value.name), ["复制"]);
 console.log("OFF intent also filters extended/disabled verbs and lazy children; manual ON remains possible.");
+const collision = visibilityListener({ exact: ["Open  Project(&P)...", "用 WorkBuddy 打开"], patterns: ["workbuddy"], enabled: ["OPEN PROJECT", "用 WorkBuddy 打开(&W)"] });
+const collisionMenu = menu(["Open Project\tP", "用 WorkBuddy 打开", "属性"]);
+collision({ menu: collisionMenu });
+assert.ok(collisionMenu.items.every(item => !item.removed), "An enabled equivalent title must survive normalization and provider patterns");
+console.log("Enabled title protection covers casing, whitespace, accelerator labels and provider patterns.");
