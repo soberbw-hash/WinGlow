@@ -59,6 +59,10 @@ pub enum Operation {
         token: String,
     },
     OptimizeMenu,
+    Appearance {
+        id: String,
+        settings: crate::visual::Appearance,
+    },
     OptionalTool {
         id: String,
         verb: String,
@@ -104,6 +108,7 @@ pub struct ShellState {
     pub start_menu_supported: bool,
     pub window_material_enabled: bool,
     pub window_material_supported: bool,
+    pub appearance: crate::visual::Appearance,
     pub optional_tools: Vec<crate::optional_tools::ToolState>,
     pub optimization_active: bool,
     pub optimization_pending: bool,

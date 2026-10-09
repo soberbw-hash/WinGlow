@@ -39,3 +39,23 @@ mixed.items[1].value.submenu = () => {};
 listener({ menu: mixed }); mixed.items[1].value.submenu(sevenZipFolder);
 assert.deepEqual(sevenZipFolder.items.filter(i => !i.removed).map(i => i.value.name), ["Add to archive..."]);
 console.log("Multiple installed providers retain their basic folder action without empty submenus.");
+
+function visibilityListener(rules) {
+  let callback;
+  const script = code.replace("/*WinGlowRules*/ { exact: [], patterns: [] }", JSON.stringify(rules));
+  vm.runInNewContext(script, { menu_controller: { add_menu_listener: fn => { callback = fn; } }, fs: { write() {} }, breeze: { data_directory: () => "." } });
+  return callback;
+}
+const off = visibilityListener({ exact: ["用 WorkBuddy 打开", "使用微信输入法隔空传送"], patterns: ["quark|夸克", "defender", "百度网盘", "^自动备份(?:该|此)?文件夹$"] });
+const desktopMenu = menu(["打开(&O)", "用 WorkBuddy 打开\tW", "上传到夸克网盘", "自动备份该文件夹", "使用微信输入法隔空传送", "使用 Microsoft Defender扫描...", "上传到百度网盘", "添加到压缩文件(&A)...", "复制(&C)", "属性(&R)"]);
+off({ menu: desktopMenu });
+assert.deepEqual(desktopMenu.items.filter(item => !item.removed).map(item => item.value.name), ["打开(&O)", "添加到压缩文件(&A)...", "复制(&C)", "属性(&R)"]);
+const on = visibilityListener({ exact: [], patterns: [] });
+const manuallyEnabled = menu(["用 WorkBuddy 打开", "上传到夸克网盘"]);
+on({ menu: manuallyEnabled });
+assert.ok(manuallyEnabled.items.every(item => !item.removed));
+const lazyParent = menu(["工具"]), lazyChild = menu(["用 WorkBuddy 打开", "复制"]);
+lazyParent.items[0].value.submenu = () => {};
+off({ menu: lazyParent }); lazyParent.items[0].value.submenu(lazyChild);
+assert.deepEqual(lazyChild.items.filter(item => !item.removed).map(item => item.value.name), ["复制"]);
+console.log("OFF intent also filters extended/disabled verbs and lazy children; manual ON remains possible.");

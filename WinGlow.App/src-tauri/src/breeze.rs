@@ -214,6 +214,7 @@ pub fn set(enable: bool) -> Result<ActionResult> {
                 value: None,
             });
         }
+        entries.extend(crate::archive_filter::plan()?);
         let result = shell_engine::commit("menu:breeze", entries, || {
             let mut process = Command::new(&exe)
                 .arg("inject-consistent")

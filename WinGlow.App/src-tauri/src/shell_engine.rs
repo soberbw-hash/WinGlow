@@ -132,6 +132,7 @@ pub fn load() -> Result<ShellState> {
         start_menu_supported: crate::visual::start_supported(),
         window_material_enabled: crate::window_material::enabled()?,
         window_material_supported: crate::window_material::supported(),
+        appearance: crate::visual::appearance()?,
         optional_tools: crate::optional_tools::states()?,
         optimization_active,
         optimization_pending,
@@ -258,7 +259,8 @@ pub fn toggle(id: &str, enabled: bool) -> Result<ActionResult> {
     result
 }
 pub fn toggle_menu(id: &str, enabled: bool) -> Result<ActionResult> {
-    let entries = menu::resolve(id, enabled)?;
+    let mut entries = menu::resolve(id, enabled)?;
+    entries.extend(crate::archive_filter::plan_with(&entries)?);
     commit("menu:toggle", entries, || Ok(()))
 }
 pub fn restore(category: &str) -> Result<ActionResult> {

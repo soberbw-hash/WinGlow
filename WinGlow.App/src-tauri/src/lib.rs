@@ -85,6 +85,16 @@ async fn set_menu_item(id: String, enabled: bool) -> Result<ActionResult, String
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("{e:#}"))
 }
+
+#[tauri::command]
+async fn set_appearance(id: String, settings: visual::Appearance) -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        worker::run(Operation::Appearance { id, settings })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| format!("{error:#}"))
+}
 #[tauri::command]
 async fn restore_category(category: String) -> Result<ActionResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -161,6 +171,12 @@ pub fn run() {
                     if optimization::state()?.1 {
                         return Ok(());
                     }
+                    if breeze::enabled()? {
+                        let entries = archive_filter::plan()?;
+                        if !entries.is_empty() {
+                            shell_engine::commit("menu:sync-disabled-display", entries, || Ok(()))?;
+                        }
+                    }
                     visual::sync()
                 })();
                 if let Err(error) = result {
@@ -180,6 +196,7 @@ pub fn run() {
             import_fonts,
             load_shell,
             set_tweak,
+            set_appearance,
             set_menu_item,
             restore_category,
             repair_system,

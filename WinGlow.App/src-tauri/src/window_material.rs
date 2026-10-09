@@ -27,10 +27,26 @@ use windows::{
 };
 
 const PROP: &str = "WinGlow.OriginalBackdrop.v1";
+const APPLIED_PROP: &str = "WinGlow.AppliedBackdrop.v1";
+fn default_material() -> u32 {
+    3
+}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     pub enabled: bool,
+    #[serde(default = "default_material")]
+    pub material: u32,
+}
+pub fn configured_material() -> Result<u32> {
+    let value = visual::read("material.json")?
+        .map(|value| serde_json::from_slice::<Config>(&value.bytes))
+        .transpose()?
+        .map_or(3, |config| config.material);
+    if !matches!(value, 2 | 3) {
+        bail!("窗口材质配置无效。");
+    }
+    Ok(value)
 }
 pub fn supported() -> bool {
     visual::build() >= 22621
@@ -51,12 +67,18 @@ fn command() -> Result<String> {
     ))
 }
 pub fn plan() -> Result<Vec<Entry>> {
+    plan_with(configured_material()?)
+}
+fn plan_with(material: u32) -> Result<Vec<Entry>> {
     Ok(vec![
         Entry {
             slot: visual::config_slot("material.json"),
             value: Some(StoredValue {
                 kind: 3,
-                bytes: serde_json::to_vec(&Config { enabled: true })?,
+                bytes: serde_json::to_vec(&Config {
+                    enabled: true,
+                    material,
+                })?,
             }),
         },
         Entry {
@@ -106,19 +128,37 @@ fn eligible(class: &str, style: isize, value: u32) -> bool {
         )
 }
 unsafe extern "system" fn visit(hwnd: HWND, param: LPARAM) -> BOOL {
-    let restore = param.0 != 0;
+    let restore = param.0 == 0;
+    let desired = param.0 as u32;
     let prop = wide(PROP);
     let key = PCWSTR(prop.as_ptr());
+    let applied_prop = wide(APPLIED_PROP);
+    let applied_key = PCWSTR(applied_prop.as_ptr());
     let saved = unsafe { GetPropW(hwnd, key) };
     if !saved.is_invalid() {
+        let owned = unsafe { GetPropW(hwnd, applied_key) };
+        let applied = if owned.is_invalid() {
+            3
+        } else {
+            owned.0 as usize as u32
+        };
         if restore {
             let original = saved.0 as usize as u32 - 1;
             // If the app changed its own material subsequently, leave that choice alone.
-            if material(hwnd).is_ok_and(|current| current != 3 || put(hwnd, original).is_ok()) {
+            if material(hwnd).is_ok_and(|current| current != applied || put(hwnd, original).is_ok())
+            {
                 unsafe {
                     let _ = RemovePropW(hwnd, key);
+                    let _ = RemovePropW(hwnd, applied_key);
                 }
             }
+        } else if desired != applied
+            && material(hwnd).is_ok_and(|current| current == applied)
+            && put(hwnd, desired).is_ok()
+            && unsafe { SetPropW(hwnd, applied_key, Some(HANDLE(desired as usize as *mut _))) }
+                .is_err()
+        {
+            let _ = put(hwnd, applied);
         }
         return BOOL(1);
     }
@@ -142,20 +182,28 @@ unsafe extern "system" fn visit(hwnd: HWND, param: LPARAM) -> BOOL {
         // Store BEFORE writing. Properties vanish when HWND is destroyed, preventing reuse bugs.
         let save = unsafe { SetPropW(hwnd, key, Some(HANDLE((original as usize + 1) as *mut _))) };
         let applied = if save.is_ok() {
-            put(hwnd, 3)
+            unsafe { SetPropW(hwnd, applied_key, Some(HANDLE(desired as usize as *mut _))) }
+                .map_err(anyhow::Error::from)
+                .and_then(|()| put(hwnd, desired))
         } else {
             Err(anyhow::anyhow!("保存窗口属性失败：{save:?}"))
         };
         if save.is_ok() && applied.is_err() {
             unsafe {
                 let _ = RemovePropW(hwnd, key);
+                let _ = RemovePropW(hwnd, applied_key);
             }
         }
     }
     BOOL(1)
 }
 fn scan(restore: bool) -> Result<()> {
-    unsafe { EnumWindows(Some(visit), LPARAM(isize::from(restore))) }?;
+    let value = if restore {
+        0
+    } else {
+        configured_material()? as isize
+    };
+    unsafe { EnumWindows(Some(visit), LPARAM(value)) }?;
     Ok(())
 }
 fn heartbeat() -> Result<std::path::PathBuf> {
@@ -253,6 +301,23 @@ pub fn set(value: bool) -> Result<crate::models::ActionResult> {
     }
     result
 }
+pub fn set_style(material: u32) -> Result<crate::models::ActionResult> {
+    if !matches!(material, 2 | 3) || !supported() {
+        bail!("当前系统不支持所选窗口材质。");
+    }
+    let result = shell_engine::commit(
+        "visual:window-material-settings",
+        plan_with(material)?,
+        || {
+            pause()?;
+            sync()
+        },
+    );
+    if result.is_err() {
+        let _ = sync();
+    }
+    result
+}
 pub fn host() -> Result<()> {
     let mutex = wide("Local\\WinGlowWindowMaterialHost");
     let handle = unsafe { CreateMutexW(None, true, PCWSTR(mutex.as_ptr())) }?;
@@ -318,14 +383,16 @@ pub fn verify_api() -> Result<serde_json::Value> {
     }?;
     let result = (|| {
         let before = material(hwnd)?;
+        put(hwnd, 2)?;
+        let mica = material(hwnd)?;
         put(hwnd, 3)?;
         let applied = material(hwnd)?;
         put(hwnd, before)?;
         let restored = material(hwnd)?;
-        if applied != 3 || restored != before {
+        if mica != 2 || applied != 3 || restored != before {
             bail!("Windows 材质接口写入/还原不一致。");
         }
-        Ok(serde_json::json!({"before":before,"applied":applied,"restored":restored}))
+        Ok(serde_json::json!({"before":before,"mica":mica,"applied":applied,"restored":restored}))
     })();
     unsafe {
         let _ = DestroyWindow(hwnd);
@@ -387,21 +454,37 @@ pub fn verify_host() -> Result<serde_json::Value> {
             unsafe { GetWindowLongPtrW(hwnd, GWL_STYLE) }
         );
     };
-    wait(3)?;
+    let expected = configured_material()?;
+    wait(expected)?;
     pause()?;
     wait(before)?;
     if !enabled()? {
         bail!("暂停后台不应修改启用设置。");
     }
     sync()?;
-    wait(3)?;
+    wait(expected)?;
     Ok(
-        serde_json::json!({"before":before,"applied":3,"pausedRestored":before,"resumed":3,"configurationPreserved":true}),
+        serde_json::json!({"before":before,"applied":expected,"pausedRestored":before,"resumed":expected,"configurationPreserved":true}),
     )
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn previous_config_keeps_acrylic_and_new_config_accepts_mica() {
+        assert_eq!(
+            serde_json::from_str::<Config>(r#"{"enabled":true}"#)
+                .unwrap()
+                .material,
+            3
+        );
+        assert_eq!(
+            serde_json::from_str::<Config>(r#"{"enabled":true,"material":2}"#)
+                .unwrap()
+                .material,
+            2
+        );
+    }
     #[test]
     fn preserve_existing_material_and_system_surfaces() {
         let caption = WS_CAPTION.0 as isize;

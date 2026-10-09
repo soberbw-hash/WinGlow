@@ -319,7 +319,7 @@ pub fn plan() -> Result<Vec<Entry>> {
             }
         }
     }
-    entries.extend(crate::archive_filter::plan()?);
+    entries.extend(crate::archive_filter::plan_with(&entries)?);
     Ok(entries)
 }
 #[cfg(test)]

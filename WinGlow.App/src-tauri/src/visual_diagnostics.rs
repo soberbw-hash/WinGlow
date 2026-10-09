@@ -50,17 +50,27 @@ pub fn run() -> Result<()> {
                 component_runtime::loaded_module("StartMenuExperienceHost.exe", "windhawk.dll")?;
             bail!("开始菜单样式 DLL 未加载（引擎加载={engine}）；启动进程不算效果验证成功。");
         }
+        let settings = visual::Appearance {
+            material: 2,
+            tint: 35,
+            radius: 22,
+        };
+        visual::apply_settings("start-menu", settings)?;
+        let actual = visual::appearance()?;
+        if actual.tint != 35 || actual.radius != 22 {
+            bail!("开始菜单自定义参数没有保存。");
+        }
+        window_material::set_style(2)?;
+        let mica_host = window_material::verify_host()?;
+        window_material::set_style(3)?;
         window_material::set(true)?;
         let backdrop = window_material::verify_api()?;
         let host = window_material::verify_host()?;
         Ok(
-            serde_json::json!({"startMenuModuleLoaded":loaded,"backdropApi":backdrop,"hostLifecycle":host,"build":visual::build()}),
+            serde_json::json!({"startMenuModuleLoaded":loaded,"customTint":actual.tint,"customRadius":actual.radius,"micaHostLifecycle":mica_host,"backdropApi":backdrop,"hostLifecycle":host,"build":visual::build()}),
         )
     })();
-    let restore = shell_engine::commit("verify:visual-restore", before.clone(), || {
-        visual::stop_start()?;
-        visual::sync()
-    });
+    let restore = shell_engine::commit("verify:visual-restore", before.clone(), visual::reload);
     let exact = restore.is_ok()
         && before.iter().all(|entry| {
             WindowsRegistry

@@ -168,7 +168,7 @@ pub fn run(operation: Operation) -> Result<ActionResult> {
     let mut outcome = run_inner(operation);
     if sync_taskbar
         && let Ok(result) = &mut outcome
-        && let Err(error) = crate::visual::sync()
+        && let Err(error) = crate::visual::reload()
     {
         result
             .message
@@ -191,7 +191,7 @@ pub fn run(operation: Operation) -> Result<ActionResult> {
 pub(crate) fn run_inner(operation: Operation) -> Result<ActionResult> {
     let needs_admin = match &operation {
         Operation::OptionalTool { id, verb } => id == "explorer-patcher" && verb != "open",
-        Operation::Toggle { .. } => false,
+        Operation::Toggle { .. } | Operation::Appearance { .. } => false,
         Operation::Menu { id, .. } => crate::menu::needs_admin(id)?,
         Operation::RestoreCategory { category } => category == "menu" || category == "all-last",
         _ => true,
@@ -261,6 +261,7 @@ fn dispatch(operation: Operation) -> Result<ActionResult> {
     match operation {
         Operation::OptionalTool { id, verb } => crate::optional_tools::perform(&id, &verb),
         Operation::Toggle { id, enabled } => crate::shell_engine::toggle(&id, enabled),
+        Operation::Appearance { id, settings } => crate::visual::apply_settings(&id, settings),
         Operation::Menu { id, enabled } => crate::shell_engine::toggle_menu(&id, enabled),
         Operation::RestoreCategory { category } => {
             if category == "all-last" {

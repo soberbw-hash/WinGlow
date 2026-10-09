@@ -49,7 +49,7 @@ fn names(menu: HMENU, depth: u32) -> Vec<serde_json::Value> {
     }
     entries
 }
-fn query(path: &Path) -> Result<Vec<serde_json::Value>> {
+fn query(path: &Path, flags: u32) -> Result<Vec<serde_json::Value>> {
     let wide: Vec<_> = path
         .as_os_str()
         .to_string_lossy()
@@ -59,7 +59,7 @@ fn query(path: &Path) -> Result<Vec<serde_json::Value>> {
     let item: IShellItem = unsafe { SHCreateItemFromParsingName(PCWSTR(wide.as_ptr()), None) }?;
     let context: IContextMenu = unsafe { item.BindToHandler(None, &BHID_SFUIObject) }?;
     let menu = Menu(unsafe { CreatePopupMenu() }?);
-    unsafe { context.QueryContextMenu(menu.0, 0, 1, 0x7fff, 0) }.ok()?;
+    unsafe { context.QueryContextMenu(menu.0, 0, 1, 0x7fff, flags) }.ok()?;
     Ok(names(menu.0, 0))
 }
 pub fn run() -> Result<()> {
@@ -84,11 +84,32 @@ pub fn run() -> Result<()> {
     ] {
         report.insert(
             name.into(),
-            match query(&path) {
+            match query(&path, 0) {
                 Ok(entries) => serde_json::json!({"items":entries}),
                 Err(e) => serde_json::json!({"error":format!("{e:#}")}),
             },
         );
+    }
+    // Query a real Desktop child too; AppData-only fixtures miss cloud/Desktop verbs.
+    let desktop = std::path::PathBuf::from(std::env::var("USERPROFILE")?).join("Desktop");
+    if let Some(folder) = fs::read_dir(desktop)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .find(|path| path.is_dir())
+    {
+        for (name, flags) in [
+            ("desktopFolder", 0x14),
+            ("desktopFolderExtended", 0x114),
+            ("desktopFolderDisabledVerbs", 0x314),
+        ] {
+            report.insert(
+                name.into(),
+                match query(&folder, flags) {
+                    Ok(entries) => serde_json::json!({"flags":flags,"items":entries}),
+                    Err(error) => serde_json::json!({"error":format!("{error:#}")}),
+                },
+            );
+        }
     }
     fs::write(
         root.join("native-menu-verification.json"),

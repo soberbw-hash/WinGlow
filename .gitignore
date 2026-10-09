@@ -18,3 +18,4 @@ third_party/
 /mscorlib.dll
 /norm*.nlp
 /zh-Hans/
+.playwright-cli/

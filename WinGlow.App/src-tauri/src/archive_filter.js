@@ -1,4 +1,22 @@
-import { menu_controller } from "mshell";
+import { menu_controller, fs, breeze } from "mshell";
+
+// Rebuilt from OFF switches in the same transaction as the registry changes.
+const hiddenRules = /*WinGlowRules*/ { exact: [], patterns: [] };
+const normalize = value => String(value ?? "").split("\t")[0].replace(/\([&＆][^)]*\)|[&＆]|[.。…\s]/g, "").toLowerCase();
+const hiddenNames = new Set(hiddenRules.exact.map(normalize));
+const hiddenPatterns = hiddenRules.patterns.map(pattern => new RegExp(pattern, "i"));
+function hideDisabled(menu) {
+  for (const item of menu.items) {
+    const data = item.data();
+    const names = [data.name, data.origin_name].map(normalize);
+    if (names.some(name => hiddenNames.has(name) || hiddenPatterns.some(pattern => pattern.test(name)))) {
+      item.remove();
+    } else if (typeof data.submenu === "function") {
+      const original = data.submenu;
+      item.update_data({ submenu: child => { original(child); hideDisabled(child); } });
+    }
+  }
+}
 
 // Only remove existing archive actions; never create or re-enable menu entries.
 export function compactArchiveMenu(menu) {
@@ -28,4 +46,10 @@ export function compactArchiveMenu(menu) {
     }
   }
 }
-menu_controller.add_menu_listener(e => compactArchiveMenu(e.menu));
+menu_controller.add_menu_listener(e => {
+  const before = e.menu.items.map(item => item.data().name);
+  hideDisabled(e.menu);
+  compactArchiveMenu(e.menu);
+  // One bounded diagnostic snapshot of the actual rendered menu, no file paths.
+  try { fs.write(breeze.data_directory() + "/WinGlow-last-menu.json", JSON.stringify({ before, after: e.menu.items.map(item => item.data().name) })); } catch {}
+});
