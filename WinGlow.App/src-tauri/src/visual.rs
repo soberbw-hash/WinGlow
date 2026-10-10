@@ -29,8 +29,8 @@ impl Default for Appearance {
     fn default() -> Self {
         Self {
             material: 3,
-            tint: 78,
-            radius: 16,
+            tint: 20,
+            radius: 10,
         }
     }
 }
@@ -386,7 +386,10 @@ mod tests {
     fn preset_is_readable_and_does_not_change_shell_layout() {
         let p = String::from_utf8(start_preset_with(&Appearance::default())).unwrap();
         assert!(
-            p.contains("TintOpacity=\"0.78\"") && p.contains("disableNewStartMenuLayout=default")
+            p.contains("TintOpacity=\"0.20\"")
+                && p.contains("TintLuminosityOpacity=\"0.20\"")
+                && p.contains("CornerRadius=10")
+                && p.contains("disableNewStartMenuLayout=default")
         );
         assert!(p.contains("Include=StartMenuExperienceHost.exe\r\n"));
         assert!(!p.contains("explorer.exe") && !p.contains("Height="));
