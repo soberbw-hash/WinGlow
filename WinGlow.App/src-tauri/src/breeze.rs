@@ -176,9 +176,7 @@ pub fn running() -> Result<bool> {
     }
 }
 pub fn prepare() -> Result<()> {
-    if unsafe { windows::Win32::UI::Shell::IsUserAnAdmin().as_bool() } {
-        bail!("请以普通权限打开 WinGlow 后一键优化。");
-    }
+    crate::desktop_access::ensure_compatible()?;
     install()?;
     if running()? {
         ensure_owned_runtime()?;
@@ -231,9 +229,6 @@ pub fn sync() -> Result<()> {
 pub fn set(enable: bool) -> Result<ActionResult> {
     shell_engine::ensure_ready()?;
     if enable {
-        if unsafe { windows::Win32::UI::Shell::IsUserAnAdmin() }.as_bool() {
-            bail!("请以普通权限打开应用后启用 Breeze。");
-        }
         prepare().context("无法准备 Breeze。")?;
         let exe = exe()?;
         let mut child = None;

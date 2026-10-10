@@ -21,7 +21,8 @@ Rust stable，edition 2024，最低 1.88；Tauri 2.12.1 稳定版、React 19.3�
 - `src/components/MenuManager.tsx`：按右键位置筛选、紧凑列表与开关示意，浏览器模式禁用修改。
 - `desktop.rs`：通过 COM 修改桌面文字显示，记录实时状态，不重命名文件。
 - `explorer.rs`：字体应用、普通字体还原、撤销最近修改成功后重启当前桌面的资源管理器，并验证桌面重新出现。
-- `breeze.rs`：固定版本外部引擎下载校验、普通权限启动与关闭。
+- `breeze.rs`：固定版本外部引擎下载校验、匹配当前桌面权限的启动与关闭。
+- `desktop_access.rs`：读取当前桌面与软件的账户 SID、完整性级别；同账户单独提权启动时自动使用桌面令牌重新打开界面，权限一致的管理员桌面允许运行。不修改 UAC；管理员 worker 与材质 host 不经过 GUI 重新启动分支。
 - `repair.rs`：DISM / SFC 日志、失败报告与默认系统字体注册修复。
 - `legacy.rs`：选择性读取 v2 REG 备份，不执行 reg import。
 - `preset_data.rs`：唯一的生产字体选择与字重映射表。浏览器预览的三项模拟数据必须与此一致。

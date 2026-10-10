@@ -3,6 +3,7 @@ mod archive_filter;
 mod breeze;
 mod component_runtime;
 mod desktop;
+mod desktop_access;
 mod explorer;
 mod font_engine;
 mod legacy;
@@ -171,6 +172,13 @@ async fn open_backup(app: tauri::AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if worker::handle_cli() {
+        return;
+    }
+    // Worker / material-host modes were handled above; adapt only the interactive GUI.
+    if desktop_access::initialize() {
+        return;
+    }
+    if desktop_access::handle_probe() {
         return;
     }
     tauri::Builder::default()

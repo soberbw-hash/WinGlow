@@ -339,9 +339,7 @@ pub fn sync() -> Result<()> {
     if !enabled()? {
         return stop();
     }
-    if unsafe { windows::Win32::UI::Shell::IsUserAnAdmin() }.as_bool() {
-        bail!("请以普通权限打开 WinGlow 后启用透明任务栏。");
-    }
+    crate::desktop_access::ensure_compatible()?;
     prepare()?;
     if processes()?.iter().any(|(_, p)| {
         p.to_string_lossy()

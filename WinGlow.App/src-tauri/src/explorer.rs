@@ -10,7 +10,10 @@ use std::{
 use windows::{
     Win32::{
         Foundation::{CloseHandle, HANDLE, WAIT_OBJECT_0},
-        Security::{TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_QUERY},
+        Security::{
+            DuplicateTokenEx, SecurityImpersonation, TOKEN_ALL_ACCESS, TOKEN_DUPLICATE,
+            TOKEN_QUERY, TokenPrimary,
+        },
         System::{
             RemoteDesktop::ProcessIdToSessionId,
             SystemInformation::GetWindowsDirectoryW,
@@ -150,18 +153,25 @@ fn prepare(executable: &std::path::Path, shell: HANDLE) -> Result<Prepared> {
     };
     let mut info = PROCESS_INFORMATION::default();
     // Prepare a suspended replacement BEFORE stopping the shell. If creation fails,
-    // the user's current desktop stays alive. Never launch an elevated Explorer.
+    // the user's current desktop stays alive. Preserve the desktop's original token,
+    // including an already elevated desktop on machines with UAC disabled.
     unsafe {
         if IsUserAnAdmin().as_bool() {
             let mut token = HANDLE::default();
-            OpenProcessToken(
-                shell,
-                TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY,
-                &mut token,
-            )?;
+            OpenProcessToken(shell, TOKEN_QUERY | TOKEN_DUPLICATE, &mut token)?;
             let token = Handle(token);
-            CreateProcessWithTokenW(
+            let mut primary = HANDLE::default();
+            DuplicateTokenEx(
                 token.0,
+                TOKEN_ALL_ACCESS,
+                None,
+                SecurityImpersonation,
+                TokenPrimary,
+                &mut primary,
+            )?;
+            let primary = Handle(primary);
+            CreateProcessWithTokenW(
+                primary.0,
                 CREATE_PROCESS_LOGON_FLAGS(0),
                 PCWSTR(path.as_ptr()),
                 None,
