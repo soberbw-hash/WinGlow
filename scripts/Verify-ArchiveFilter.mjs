@@ -64,3 +64,8 @@ const collisionMenu = menu(["Open Project\tP", "用 WorkBuddy 打开", "属性"]
 collision({ menu: collisionMenu });
 assert.ok(collisionMenu.items.every(item => !item.removed), "An enabled equivalent title must survive normalization and provider patterns");
 console.log("Enabled title protection covers casing, whitespace, accelerator labels and provider patterns.");
+const requestedCleanup = visibilityListener({ exact: [], enabled: ['使用微信打开（手动保留）'], patterns: ['onedrive', '夸克|quark', '豆包|doubao', '图形处理器|graphicsprocessor|opengl', '微信|wechat|wetype', '隔空(?:投送|传送)|airdrop'] });
+const requestedItems = menu(['使用图形处理器运行', '更改 OpenGL 渲染 GPU', '豆包', '使用微信', '隔空投送', 'OneDrive', '上传到夸克网盘', '使用微信打开（手动保留）', '打开', '复制', '属性']);
+requestedCleanup({ menu: requestedItems });
+assert.deepEqual(requestedItems.items.filter(i => !i.removed).map(i => i.value.name), ['使用微信打开（手动保留）', '打开', '复制', '属性']);
+console.log('Requested GPU, cloud, Doubao and WeChat cleanup hides display aliases while respecting manual ON titles.');

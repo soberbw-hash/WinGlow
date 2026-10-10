@@ -5339,7 +5339,7 @@ checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "winglow"
-version = "1.1.4"
+version = "1.1.5"
 dependencies = [
  "anyhow",
  "base64 0.23.1",

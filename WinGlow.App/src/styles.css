@@ -195,6 +195,11 @@ h1 { font-size: 24px; line-height: 1.35; font-weight: 600; margin-bottom: 24px; 
 .home-intro h1 { margin: 0 0 18px; font-size: clamp(32px, 2.6vw, 42px); font-weight: 700; line-height: 1.35; letter-spacing: .06em; padding-left: .06em; }
 .home-intro p { margin: 0; line-height: 1.7; letter-spacing: .025em; }
 .home-actions { margin-top: 32px; }
+.home-settings { width: min(100%, 720px); margin-top: 24px; }
+.home-settings > summary { width: fit-content; margin: 0 auto; padding: 8px 12px; cursor: pointer; color: var(--color-slate-600); font-size: 14px; }
+.home-settings > summary:focus-visible { outline: 2px solid var(--color-blue-600); outline-offset: 3px; border-radius: 8px; }
+.home-settings[open] { flex-shrink: 0; }
+.home-settings .settings-list { margin-top: 16px; }
 .home-main > .notice { flex-shrink: 0; margin: 0 0 18px; }
 input, select, textarea { font-family: inherit; }
 .semantic-icon { color: var(--color-slate-500); }

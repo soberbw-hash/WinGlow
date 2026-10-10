@@ -6,7 +6,7 @@ async (page) => {
     window.__TAURI_INTERNALS__ = { invoke: async command => {
       if (command === 'load_bootstrap') return { presets: [], activePresetId: null, activeFontLabel: 'Windows 默认', currentPreviewFamily: 'sans-serif', currentPreviewWeight: 400, needsFontRefresh: false, backupDir: '', canRestore: false, pendingRecovery: null };
       if (command === 'load_shell') return { items: [], tweaks: [], optionalTools: [], appearance: { material: 3, tint: 20, radius: 10 }, taskbarSupported: true, startMenuSupported: true, windowMaterialSupported: true, optimizationActive: active, optimizationPending: false, pendingRecovery: false };
-      if (command === 'update_status') return { currentVersion: '1.1.4', phase: 'idle', version: null, downloaded: 0, total: null, error: null };
+      if (command === 'update_status') return { currentVersion: '1.1.5', phase: 'idle', version: null, downloaded: 0, total: null, error: null };
       throw Error('Unexpected IPC: ' + command);
     }};
   });
@@ -25,7 +25,14 @@ async (page) => {
       if (geometry.overflow || Math.max(...geometry.centers) - Math.min(...geometry.centers) > 1) throw Error('Homepage alignment failed at '+width);
       if (active && (geometry.buttons.length !== 2 || Math.abs(geometry.buttons[0].width - geometry.buttons[1].width) > 1 || Math.abs(geometry.buttons[0].height - geometry.buttons[1].height) > 1)) throw Error('Buttons differ in size');
       results.push({width,height,active,...geometry});
-      if (width === 1707 && active) await page.screenshot({path:'output/playwright/home-1.1.4.png'});
+      await page.locator('.home-settings > summary').click();
+      for (const label of ['透明任务栏', '窗口背景', '开始菜单美化']) {
+        if (await page.getByRole('switch', {name:label, exact:true}).count() !== 1) throw Error('Missing home setting: ' + label);
+      }
+      if (await page.getByRole('slider').count() !== 2) throw Error('Start menu customization missing');
+      if (width === 1707 && active) await page.screenshot({path:'output/playwright/home-settings-1.1.5.png'});
+      await page.getByRole('button', {name:'基础美化', exact:true}).click();
+      if (await page.getByRole('switch', {name:'透明任务栏', exact:true}).count()) throw Error('Setting duplicated in basic customization');
     }
   }
   return results;

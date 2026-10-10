@@ -123,9 +123,23 @@ fn display_rules(
             "^(?:加密|解密)$",
         ),
         (&["slideshow", "幻灯片"][..], "幻灯片|slideshow"),
+        (&["onedrive", "filesyncex", "filesyncshell"][..], "onedrive"),
+        (&["豆包", "doubao"][..], "豆包|doubao"),
         (
-            &["微信输入法", "wetype"][..],
-            "微信输入法.*(?:传送|传输)|wetype",
+            &[
+                "nvidia",
+                "英伟达",
+                "nvapps",
+                "图形处理器",
+                "graphics processor",
+                "opengl",
+            ][..],
+            "图形处理器|graphicsprocessor|opengl",
+        ),
+        (&["微信", "wechat", "wetype"][..], "微信|wechat|wetype"),
+        (
+            &["隔空投送", "隔空传送", "airdrop"][..],
+            "隔空(?:投送|传送)|airdrop",
         ),
     ] {
         if off(terms) {
@@ -242,5 +256,30 @@ mod tests {
         );
         assert_eq!(rules["enabled"][0], "OPEN PROJECT(&P)");
         assert_eq!(rules["exact"][0], "Open Project");
+    }
+    #[test]
+    fn requested_product_aliases_follow_disabled_state_and_preserve_manual_enabling() {
+        for (label, pattern) in [
+            ("OneDrive", "onedrive"),
+            ("豆包", "豆包|doubao"),
+            ("NVIDIA 控制面板", "图形处理器|graphicsprocessor|opengl"),
+            ("使用微信输入法隔空传送", "微信|wechat|wetype"),
+            ("隔空投送", "隔空(?:投送|传送)|airdrop"),
+        ] {
+            let hidden = display_rules(vec![item(label, false, verb())], &[]);
+            assert!(
+                hidden["patterns"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|p| p == pattern),
+                "{label}"
+            );
+            let visible = display_rules(vec![item(label, true, verb())], &[]);
+            assert!(
+                visible["patterns"].as_array().unwrap().is_empty(),
+                "{label}"
+            );
+        }
     }
 }

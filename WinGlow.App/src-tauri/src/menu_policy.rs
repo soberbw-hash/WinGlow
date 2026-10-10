@@ -120,6 +120,19 @@ fn confirmed_third_party(name: &str, source: &str) -> bool {
         "nvidia",
         "nvui.dll",
         "英伟达",
+        "使用图形处理器运行",
+        "run with graphics processor",
+        "opengl",
+        "nvapps",
+        "onedrive",
+        "filesyncex",
+        "filesyncshell",
+        "微信",
+        "wechat",
+        "wetype",
+        "隔空投送",
+        "隔空传送",
+        "airdrop",
         "doubao",
         "豆包",
         "chatgpt",
@@ -397,12 +410,26 @@ mod tests {
             "Previous Versions Property Page",
             "Encryption Context Menu",
             "SlideshowContextMenu",
+            "使用图形处理器运行",
+            "Run with graphics processor",
+            "更改 OpenGL 渲染 GPU",
+            "NvAppShExt Class",
+            "OneDrive",
+            "FileSyncEx",
+            "使用微信",
+            "使用微信输入法隔空传送",
+            "隔空投送",
+            "AirDrop",
         ] {
             assert!(confirmed_third_party(label, ""), "{label}");
         }
         assert!(!confirmed_third_party(
             "Open With",
             "C:\\Windows\\system32\\shell32.dll"
+        ));
+        assert!(confirmed_third_party(
+            "FileSyncEx",
+            "C:\\Users\\test\\AppData\\Local\\Microsoft\\OneDrive\\FileSyncShell64.dll"
         ));
     }
     #[test]
