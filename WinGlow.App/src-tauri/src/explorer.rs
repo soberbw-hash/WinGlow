@@ -318,10 +318,21 @@ fn recover_effects() -> Result<()> {
     finish_runtime(finish_runtime(taskbar, || breeze), || visual)
 }
 pub fn restart() -> Result<()> {
-    let result = protected_refresh(crate::taskbar::pause_owned, restart_shell, || {
-        wait_for_taskbar()?;
-        recover_effects()
-    });
+    let wallpaper = crate::optional_tools::WallpaperRefresh::capture()?;
+    let result = protected_refresh(
+        || {
+            wallpaper.pause()?;
+            crate::taskbar::pause_owned()?;
+            crate::breeze::pause_owned()
+        },
+        restart_shell,
+        || {
+            finish_runtime(
+                wait_for_taskbar().and_then(|()| recover_effects()),
+                crate::optional_tools::resume_lively_after_refresh,
+            )
+        },
+    );
     if result.is_ok() {
         OBSERVED_SHELL.store(
             shell_pid().unwrap_or(0),
@@ -494,6 +505,35 @@ mod tests {
         assert!(crate::taskbar::running().unwrap());
         assert!(!crate::taskbar::warning_dialog_visible().unwrap());
         assert_eq!(crate::taskbar::read_config().unwrap(), config);
+    }
+
+    #[test]
+    #[ignore = "Explicit real-desktop acceptance only: refreshes Explorer with Lively running"]
+    fn real_desktop_repeated_refresh_preserves_lively_selection() {
+        let _guard = crate::worker::optimization_lock().unwrap();
+        crate::shell_engine::ensure_ready().unwrap();
+        assert!(
+            !crate::component_runtime::processes("Lively.exe")
+                .unwrap()
+                .is_empty()
+        );
+        let layout = dirs::data_local_dir()
+            .unwrap()
+            .join("Lively Wallpaper/WallpaperLayout.json");
+        let selection = std::fs::read(&layout).unwrap();
+        let start = Instant::now();
+        for _ in 0..2 {
+            let before = shell_pid().unwrap();
+            restart().unwrap();
+            assert_ne!(shell_pid(), Some(before));
+            assert!(
+                !crate::component_runtime::processes("Lively.exe")
+                    .unwrap()
+                    .is_empty()
+            );
+            assert_eq!(std::fs::read(&layout).unwrap(), selection);
+        }
+        assert!(start.elapsed() < Duration::from_secs(30));
     }
 
     #[test]

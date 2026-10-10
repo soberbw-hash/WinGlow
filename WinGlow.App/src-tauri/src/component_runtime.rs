@@ -14,9 +14,10 @@ use windows::{
                 PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPMODULE,
                 TH32CS_SNAPMODULE32, TH32CS_SNAPPROCESS,
             },
+            RemoteDesktop::ProcessIdToSessionId,
             Threading::{
-                OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-                QueryFullProcessImageNameW,
+                GetCurrentProcessId, OpenProcess, PROCESS_NAME_WIN32,
+                PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
             },
         },
     },
@@ -24,6 +25,8 @@ use windows::{
 };
 
 pub fn processes(name: &str) -> Result<Vec<PathBuf>> {
+    let mut own_session = 0;
+    unsafe { ProcessIdToSessionId(GetCurrentProcessId(), &mut own_session) }?;
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }?;
     struct Guard(windows::Win32::Foundation::HANDLE);
     impl Drop for Guard {
@@ -46,7 +49,11 @@ pub fn processes(name: &str) -> Result<Vec<PathBuf>> {
                 .iter()
                 .position(|&c| c == 0)
                 .unwrap_or(entry.szExeFile.len());
-            if String::from_utf16_lossy(&entry.szExeFile[..len]).eq_ignore_ascii_case(name) {
+            let mut session = 0;
+            if String::from_utf16_lossy(&entry.szExeFile[..len]).eq_ignore_ascii_case(name)
+                && unsafe { ProcessIdToSessionId(entry.th32ProcessID, &mut session) }.is_ok()
+                && session == own_session
+            {
                 let process = unsafe {
                     OpenProcess(
                         PROCESS_QUERY_LIMITED_INFORMATION,
@@ -85,9 +92,19 @@ pub fn own_running(exe: &Path) -> Result<bool> {
     Ok(processes(&name)?.iter().any(|p| same_path(p, exe)))
 }
 pub fn same_path(a: &Path, b: &Path) -> bool {
-    a.to_string_lossy()
-        .eq_ignore_ascii_case(&b.to_string_lossy())
+    fn normalized(path: &Path) -> String {
+        path.to_string_lossy()
+            .replace('/', "\\")
+            .trim_start_matches("\\\\?\\")
+            .to_owned()
+    }
+    normalized(a).eq_ignore_ascii_case(&normalized(b))
+        || std::fs::canonicalize(a)
+            .ok()
+            .zip(std::fs::canonicalize(b).ok())
+            .is_some_and(|(a, b)| normalized(&a).eq_ignore_ascii_case(&normalized(&b)))
 }
+
 pub fn preflight(exe: &Path) -> Result<()> {
     let name = exe.file_name().unwrap().to_string_lossy();
     if processes(&name)?.iter().any(|p| !same_path(p, exe)) {
@@ -177,4 +194,25 @@ pub fn loaded_module(process_name: &str, module_name: &str) -> Result<bool> {
         let _ = CloseHandle(snapshot);
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn runtime_paths_match_windows_separator_case_and_long_path_variants() {
+        let expected = Path::new("C:\\Users\\test\\Application/Lively.exe");
+        assert!(same_path(
+            expected,
+            Path::new("c:\\users\\TEST\\Application\\Lively.exe")
+        ));
+        assert!(same_path(
+            expected,
+            Path::new("\\\\?\\C:\\Users\\test\\Application\\Lively.exe")
+        ));
+        assert!(!same_path(
+            expected,
+            Path::new("C:\\Other\\Application\\Lively.exe")
+        ));
+    }
 }

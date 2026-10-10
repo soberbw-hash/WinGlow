@@ -198,7 +198,8 @@ pub fn run() {
                             shell_engine::commit("menu:sync-disabled-display", entries, || Ok(()))?;
                         }
                     }
-                    visual::sync()
+                    visual::sync()?;
+                    optional_tools::resume_lively_after_refresh()
                 })();
                 if let Err(error) = result {
                     eprintln!("视觉组件恢复未完成：{error:#}");

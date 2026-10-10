@@ -6,7 +6,7 @@ async (page) => {
     window.__TAURI_INTERNALS__ = { invoke: async command => {
       if (command === 'load_bootstrap') return { presets: [], activePresetId: null, activeFontLabel: 'Windows 默认', currentPreviewFamily: 'sans-serif', currentPreviewWeight: 400, needsFontRefresh: false, backupDir: '', canRestore: false, pendingRecovery: null };
       if (command === 'load_shell') return { items: [], tweaks: [], optionalTools: [], appearance: { material: 3, tint: 20, radius: 10 }, taskbarSupported: true, startMenuSupported: true, windowMaterialSupported: true, optimizationActive: active, optimizationPending: false, pendingRecovery: false };
-      if (command === 'update_status') return { currentVersion: '1.1.5', phase: 'idle', version: null, downloaded: 0, total: null, error: null };
+      if (command === 'update_status') return { currentVersion: '1.1.6', phase: 'idle', version: null, downloaded: 0, total: null, error: null };
       throw Error('Unexpected IPC: ' + command);
     }};
   });
@@ -30,9 +30,11 @@ async (page) => {
         if (await page.getByRole('switch', {name:label, exact:true}).count() !== 1) throw Error('Missing home setting: ' + label);
       }
       if (await page.getByRole('slider').count() !== 2) throw Error('Start menu customization missing');
-      if (width === 1707 && active) await page.screenshot({path:'output/playwright/home-settings-1.1.5.png'});
+      if (width === 1707 && active) await page.screenshot({path:'output/playwright/home-settings-1.1.6.png'});
       await page.getByRole('button', {name:'基础美化', exact:true}).click();
-      if (await page.getByRole('switch', {name:'透明任务栏', exact:true}).count()) throw Error('Setting duplicated in basic customization');
+      for (const label of ['透明任务栏', '窗口背景', '开始菜单美化']) {
+        if (await page.getByRole('switch', {name:label, exact:true}).count() !== 1) throw Error('Missing basic customization setting: ' + label);
+      }
     }
   }
   return results;

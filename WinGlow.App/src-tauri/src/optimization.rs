@@ -121,6 +121,17 @@ fn restore_inner() -> Result<ActionResult> {
             message: "没有需要撤销的一键优化。".into(),
         });
     };
+    // UAC cancellation/preparation failure before a core snapshot is a no-op.
+    // Do not cycle every runtime and Explorer just to remove a session marker.
+    if core_dir(&s.token)?.is_none() {
+        fs::remove_file(marker()?)?;
+        if done(&s.token)?.exists() {
+            fs::remove_file(done(&s.token)?)?;
+        }
+        return Ok(ActionResult {
+            message: "本次操作未修改系统，无需还原。".into(),
+        });
+    }
     // Stop only effects activated by this session before restoring their configuration.
     if !s.taskbar_before {
         taskbar::stop()?;
@@ -208,7 +219,7 @@ pub fn apply() -> Result<ActionResult> {
     )?;
     let result = crate::explorer::finish(
         Ok(ActionResult {
-            message: "已优化字体、菜单与任务栏。".into(),
+            message: "已优化字体、右键菜单、图标角标及桌面效果。".into(),
         }),
         true,
         crate::explorer::restart,

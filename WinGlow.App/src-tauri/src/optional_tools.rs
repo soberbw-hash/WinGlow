@@ -93,6 +93,123 @@ fn lively_existing() -> Option<PathBuf> {
     }
     None
 }
+// The desktop refresh owns only a temporary runtime interruption. Wallpaper
+// selection, layout and preferences remain in Lively's own saved files.
+pub struct WallpaperRefresh {
+    exe: Option<PathBuf>,
+}
+fn resume_marker() -> Result<PathBuf> {
+    Ok(font_engine::data_root()?.join("lively-refresh-resume.json"))
+}
+fn known_lively(exe: &Path) -> Result<bool> {
+    Ok(runtime::same_path(exe, &own_exe(&LIVELY)?)
+        || lively_existing().is_some_and(|installed| runtime::same_path(exe, &installed)))
+}
+impl WallpaperRefresh {
+    pub fn capture() -> Result<Self> {
+        let paths = runtime::processes("Lively.exe")?;
+        for path in &paths {
+            if !known_lively(path)? {
+                bail!("无法确认动态壁纸的安装来源，未刷新桌面。请先退出该壁纸程序后重试。");
+            }
+        }
+        if let Some(exe) = paths.first() {
+            runtime::preflight(exe)?;
+        }
+        Ok(Self {
+            exe: paths.into_iter().next(),
+        })
+    }
+    pub fn pause(&self) -> Result<()> {
+        let Some(exe) = &self.exe else {
+            return Ok(());
+        };
+        backup(&LIVELY)?;
+        let marker = resume_marker()?;
+        if !marker.exists() {
+            transaction::persist_new(&marker, &serde_json::to_vec(exe)?)?;
+        }
+        runtime::preflight(exe)?;
+        // Upstream's secondary process sends its command asynchronously. A zero
+        // exit code alone is not acknowledgement; retry while the original lives.
+        for _ in 0..3 {
+            if !runtime::own_running(exe)? {
+                return Ok(());
+            }
+            let mut request = runtime::command(exe)
+                .args(["app", "--shutdown", "true"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()?;
+            let deadline = Instant::now() + Duration::from_secs(3);
+            loop {
+                if let Some(status) = request.try_wait()? {
+                    if !status.success() {
+                        bail!("动态壁纸未正常响应退出请求，未刷新桌面。");
+                    }
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    let _ = request.kill(); // Only the newly spawned command helper.
+                    bail!("动态壁纸退出请求超时，未刷新桌面。");
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            while runtime::own_running(exe)? {
+                if Instant::now() >= deadline {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        }
+        if runtime::own_running(exe)? {
+            bail!("动态壁纸尚未退出，未刷新桌面。");
+        }
+        Ok(())
+    }
+}
+pub fn resume_lively_after_refresh() -> Result<()> {
+    let marker = resume_marker()?;
+    let bytes = match fs::read(&marker) {
+        Ok(bytes) if bytes.len() <= 8192 => bytes,
+        Ok(_) => bail!("动态壁纸恢复记录过大。"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let exe: PathBuf = serde_json::from_slice(&bytes)?;
+    if !known_lively(&exe)? || !exe.is_file() {
+        bail!("动态壁纸安装位置已变化，未自动启动。请手动打开动态壁纸。");
+    }
+    runtime::preflight(&exe)?;
+    if !runtime::own_running(&exe)? {
+        let mut child = runtime::command(&exe)
+            // Fresh upstream instances parse only screensaver arguments. Regular
+            // controls are for an already running instance, so start without args.
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()?;
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            std::thread::sleep(Duration::from_millis(200));
+            if let Some(status) = child.try_wait()? {
+                if !status.success() || !runtime::own_running(&exe)? {
+                    bail!("动态壁纸恢复失败：{status}。请手动打开动态壁纸。");
+                }
+                break;
+            }
+            if runtime::own_running(&exe)?
+                && deadline.saturating_duration_since(Instant::now()) <= Duration::from_secs(6)
+            {
+                break;
+            }
+            if Instant::now() >= deadline {
+                bail!("动态壁纸恢复超时，请手动打开动态壁纸。");
+            }
+        }
+    }
+    fs::remove_file(marker)?;
+    Ok(())
+}
 fn installed(t: &Tool) -> Result<bool> {
     Ok(own_exe(t)?.is_file() || t.id == "lively" && lively_existing().is_some())
 }

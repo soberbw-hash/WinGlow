@@ -111,12 +111,12 @@ export default function App() {
       <div className="sidebar-bottom"><button className={cn("nav-item", page === "settings" && "active")} aria-current={page === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><RotateCcw size={18} /><span>设置与还原</span></button></div>
     </aside><main className={cn("main-content", page === "menu" && "menu-page", page === "home" && "home-main")} aria-busy={loading || busy}>
       {page === "home" ? <section className="home-page" aria-label="一键优化">
-        <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观</h1><p>舒服的字体，清爽的菜单，柔和的磨砂效果。</p></div>
+        <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观</h1><p>鸿蒙字体、右键美化与精简、隐藏角标、柔和的桌面效果。</p></div>
         {!shell && !loading && <button className="button secondary" onClick={() => void reload()}>重新读取</button>}
         <div className="home-actions"><button className="button primary optimize-button" disabled={blocked || !shell || shell.optimizationActive} title="首次使用需联网准备 Breeze。完成后自动刷新资源管理器，文件窗口可能关闭。" onClick={() => void mutate(() => optimizeSystem())}><Sparkles size={20} />{busy ? "正在处理…" : shell?.optimizationActive && !shell.optimizationPending ? "已优化" : "一键优化"}</button>
           {shell?.optimizationActive && !shell.optimizationPending && <button className="button secondary home-restore" disabled={!desktop || busy || loading} onClick={() => void mutate(() => optimizeSystem(true))}><RotateCcw size={20} />撤销优化</button>}
         </div>
-        {shell && <details className="home-settings"><summary>优化设置</summary>{optimizationEffects}</details>}
+        {shell && <details className="home-settings"><summary>任务栏、窗口与开始菜单设置</summary>{optimizationEffects}</details>}
         {shell && !shell.taskbarSupported && <p className="home-support">透明任务栏需要 Windows 11。</p>}
       </section> : page === "fonts" ? <><h1>字体</h1>
         {loading && !bootstrap ? <div className="empty-state"><p>正在读取…</p></div> : !bootstrap ? <div className="empty-state"><button className="button secondary" onClick={() => void reload(true)}>重试</button></div> : <>
@@ -131,6 +131,7 @@ export default function App() {
           <div className="menu-page-heading"><h1>右键菜单</h1><button className="button primary menu-auto-button" disabled={blocked || !shell} onClick={() => void mutate(optimizeMenu)}>一键精简</button><div className="breeze-compact" title="首次开启需下载，关闭后注销恢复原菜单。"><span>Breeze 美化</span><Switch label="Breeze 美化" checked={shell?.breezeEnabled ?? false} disabled={blocked || !shell} onChange={value => void mutate(() => setTweak("breeze", value))} /></div></div>
           {!shell && loading ? <p className="empty-state">正在读取…</p> : !shell ? <button className="button secondary" onClick={() => void reload()}>重试</button> : <MenuManager items={shell.items} disabled={blocked} loading={busy || loading} onRefresh={() => void reload()} onToggle={(id, enabled) => void mutate(() => setMenuItem(id, enabled))} />}
         </> : page === "details" ? <><h1>基础美化</h1>{!shell ? <div className="empty-state"><button className="button secondary" disabled={loading} onClick={() => void reload()}>重试</button></div> : <>
+          {optimizationEffects}
           <div className="settings-list">
             {shell.tweaks.map(tweak => <div className="setting-row" key={tweak.id}><div><h2>{tweak.label}</h2>{tweak.note && <p>{tweak.note}</p>}</div><Switch label={tweak.label} checked={tweak.enabled} disabled={blocked} onChange={value => void mutate(() => setTweak(tweak.id, value))} /></div>)}
           </div>

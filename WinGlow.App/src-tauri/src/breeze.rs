@@ -14,7 +14,7 @@ use std::{
     os::windows::process::CommandExt,
     path::PathBuf,
     process::Command,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use windows::{
     Win32::{
@@ -111,6 +111,10 @@ pub fn install() -> Result<PathBuf> {
     Ok(root.join("breeze.exe"))
 }
 pub fn stop() -> Result<()> {
+    if !running()? {
+        return Ok(());
+    }
+    ensure_owned_runtime()?;
     let name: Vec<_> = "breeze-shell-inject-consistent-exit"
         .encode_utf16()
         .chain([0])
@@ -125,6 +129,13 @@ pub fn stop() -> Result<()> {
         }
         Err(error) if error.code().0 as u32 == 0x80070002 => {}
         Err(error) => return Err(error.into()),
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while running()? {
+        if Instant::now() >= deadline {
+            bail!("Breeze 尚未退出，请稍后重试；没有强制结束其他程序。");
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
     Ok(())
 }
@@ -168,10 +179,35 @@ pub fn prepare() -> Result<()> {
     if unsafe { windows::Win32::UI::Shell::IsUserAnAdmin().as_bool() } {
         bail!("请以普通权限打开 WinGlow 后一键优化。");
     }
-    if running()? && !enabled()? {
-        bail!("Breeze 已由其他工具启动，请先退出它再一键优化。");
-    }
     install()?;
+    if running()? {
+        ensure_owned_runtime()?;
+    }
+    Ok(())
+}
+fn runtime_owned(active: bool, own: bool, foreign: bool) -> bool {
+    !foreign && (!active || own)
+}
+fn ensure_owned_runtime() -> Result<()> {
+    let expected = exe()?;
+    let processes = crate::component_runtime::processes("breeze.exe")?;
+    let own = processes
+        .iter()
+        .any(|path| crate::component_runtime::same_path(path, &expected));
+    let foreign = processes
+        .iter()
+        .any(|path| !crate::component_runtime::same_path(path, &expected));
+    if !runtime_owned(running()?, own, foreign) {
+        bail!(
+            "检测到其他来源的 Breeze 正在运行，请退出它后重试。WinGlow 自己启动的实例会自动复用。"
+        );
+    }
+    Ok(())
+}
+pub fn pause_owned() -> Result<()> {
+    if running()? {
+        stop()?;
+    }
     Ok(())
 }
 pub fn sync() -> Result<()> {
@@ -198,7 +234,8 @@ pub fn set(enable: bool) -> Result<ActionResult> {
         if unsafe { windows::Win32::UI::Shell::IsUserAnAdmin() }.as_bool() {
             bail!("请以普通权限打开应用后启用 Breeze。");
         }
-        let exe = install().context("无法准备 Breeze。")?;
+        prepare().context("无法准备 Breeze。")?;
+        let exe = exe()?;
         let mut child = None;
         let mut entries = vec![Entry {
             slot: slot(),
@@ -216,6 +253,9 @@ pub fn set(enable: bool) -> Result<ActionResult> {
         }
         entries.extend(crate::archive_filter::plan()?);
         let result = shell_engine::commit("menu:breeze", entries, || {
+            if running()? {
+                return ensure_owned_runtime();
+            }
             let mut process = Command::new(&exe)
                 .arg("inject-consistent")
                 .creation_flags(CREATE_NO_WINDOW)
@@ -253,5 +293,24 @@ pub fn set(enable: bool) -> Result<ActionResult> {
         Ok(ActionResult {
             message: "已关闭 Breeze 自启和注入进程。注销后恢复原菜单。".into(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn runtime_ownership_does_not_depend_on_startup_toggle() {
+        assert!(runtime_owned(true, true, false));
+        assert!(runtime_owned(false, false, false));
+        assert!(!runtime_owned(true, false, false));
+        assert!(!runtime_owned(true, true, true));
+        assert!(!runtime_owned(false, true, true));
+    }
+    #[test]
+    #[ignore = "Read-only installed runtime acceptance"]
+    fn real_owned_runtime_is_accepted_without_startup_registration() {
+        assert!(running().unwrap());
+        ensure_owned_runtime().unwrap();
     }
 }
