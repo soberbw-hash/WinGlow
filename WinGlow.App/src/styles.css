@@ -168,8 +168,8 @@ h1 { font-size: 24px; line-height: 1.35; font-weight: 600; margin-bottom: 24px; 
 .home-intro h1 { font-size: 34px; margin-bottom: 14px; text-wrap: balance; }
 .home-intro p { color: var(--color-slate-600); font-size: 14px; line-height: 1.8; text-wrap: pretty; }
 .home-actions { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 34px; flex-wrap: wrap; }
-.optimize-button { min-width: 216px; min-height: 58px; font-size: 17px; background: var(--brand-accent) !important; }
-.home-restore { min-height: 48px; }
+.home-actions > .button { width: 216px; min-height: 58px; font-size: 17px; padding: 12px 18px; }
+.optimize-button { background: var(--brand-accent) !important; }
 .home-recovery,.home-support { margin-top: 18px; color: var(--color-slate-600); font-size: 13px; }
 .menu-auto-button { margin-left: auto; min-height: 34px; padding: 6px 12px; }
 @media(max-width:760px) { .home-page { padding: 20px 0; } .home-intro h1 { font-size: 28px; } .menu-page-heading { gap: 8px; } }
