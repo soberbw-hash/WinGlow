@@ -105,6 +105,27 @@ async fn restore_category(category: String) -> Result<ActionResult, String> {
     .map_err(|e| format!("{e:#}"))
 }
 #[tauri::command]
+async fn recover_pending() -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut restored = None;
+        if optimization::state()?.1 {
+            restored = Some(optimization::restore()?);
+        }
+        if !transaction::pending_directories(&font_engine::backup_root()?)?.is_empty() {
+            restored = Some(worker::run(Operation::RestoreCategory {
+                category: "pending".into(),
+            })?);
+        }
+        Ok::<_, anyhow::Error>(restored.unwrap_or(ActionResult {
+            message: "没有未完成的修改，状态已重新检查。".into(),
+        }))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map_err(|error| format!("{error:#}"))
+}
+
+#[tauri::command]
 async fn repair_system() -> Result<ActionResult, String> {
     tauri::async_runtime::spawn_blocking(move || worker::run(Operation::Repair))
         .await
@@ -199,6 +220,7 @@ pub fn run() {
             set_appearance,
             set_menu_item,
             restore_category,
+            recover_pending,
             repair_system,
             repair_progress,
             optimize_system,

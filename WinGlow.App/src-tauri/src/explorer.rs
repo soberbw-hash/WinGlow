@@ -37,7 +37,7 @@ pub fn needed(operation: &Operation) -> bool {
             | Operation::Restore { .. }
             | Operation::Menu { .. }
             | Operation::OptimizeMenu
-    ) || matches!(operation, Operation::RestoreCategory { category } if category == "all-last" || category == "details" || category == "menu")
+    ) || matches!(operation, Operation::RestoreCategory { category } if matches!(category.as_str(), "all-last" | "details" | "menu" | "pending"))
         || matches!(operation, Operation::Toggle { id, .. } if id == "file-extensions")
 }
 
@@ -51,7 +51,7 @@ pub fn finish(
     let mut result = outcome?;
     if refresh {
         match restart() {
-            Ok(()) => result.message = "已完成，资源管理器已刷新。部分界面仍需注销后生效。".into(),
+            Ok(()) => result.message.push_str(" 资源管理器已刷新。"),
             Err(error) => result.message.push_str(&format!(
                 " 自动刷新未完成：{error:#}。可在任务管理器中重新启动 Windows 资源管理器。"
             )),
@@ -543,6 +543,20 @@ mod tests {
         assert!(result.message.starts_with("已应用。"));
         assert!(result.message.contains("launch failed"));
         assert!(result.message.contains("任务管理器"));
+    }
+    #[test]
+    fn successful_refresh_keeps_partial_runtime_recovery_warning() {
+        let message = "已恢复设置。 视觉组件恢复未完成：runtime failure。";
+        let result = finish(
+            Ok(ActionResult {
+                message: message.into(),
+            }),
+            true,
+            || Ok(()),
+        )
+        .unwrap();
+        assert!(result.message.starts_with(message));
+        assert!(result.message.contains("资源管理器已刷新"));
     }
     #[test]
     fn import_and_repair_do_not_restart_shell() {

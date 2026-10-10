@@ -34,6 +34,7 @@ export const setTweak = (id: string, enabled: boolean) => invoke<ActionResult>("
 export const setAppearance = (id: string, settings: Appearance) => invoke<ActionResult>("set_appearance", { id, settings });
 export const setMenuItem = (id: string, enabled: boolean) => invoke<ActionResult>("set_menu_item", { id, enabled });
 export const restoreCategory = (category: "menu" | "details" | "all-last") => invoke<ActionResult>("restore_category", { category });
+export const recoverPending = () => invoke<ActionResult>("recover_pending");
 export const repairSystem = () => invoke<ActionResult>("repair_system");
 export const repairProgress = () => invoke<RepairProgress>("repair_progress");
 export const optimizeSystem = (restore = false) => invoke<ActionResult>("optimize_system", { restore });

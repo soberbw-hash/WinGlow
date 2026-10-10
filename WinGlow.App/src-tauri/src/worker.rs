@@ -164,7 +164,7 @@ fn request_dir(nonce: &str) -> Result<std::path::PathBuf> {
 pub fn run(operation: Operation) -> Result<ActionResult> {
     let _optimization_guard = optimization_lock()?;
     let refresh = crate::explorer::needed(&operation);
-    let sync_taskbar = matches!(&operation, Operation::RestoreCategory {category} if category == "details" || category == "all-last");
+    let sync_taskbar = matches!(&operation, Operation::RestoreCategory {category} if category == "details" || category == "all-last" || category == "pending");
     let mut outcome = run_inner(operation);
     if sync_taskbar
         && let Ok(result) = &mut outcome
@@ -193,7 +193,9 @@ pub(crate) fn run_inner(operation: Operation) -> Result<ActionResult> {
         Operation::OptionalTool { id, verb } => id == "explorer-patcher" && verb != "open",
         Operation::Toggle { .. } | Operation::Appearance { .. } => false,
         Operation::Menu { id, .. } => crate::menu::needs_admin(id)?,
-        Operation::RestoreCategory { category } => category == "menu" || category == "all-last",
+        Operation::RestoreCategory { category } => {
+            matches!(category.as_str(), "menu" | "all-last" | "pending")
+        }
         _ => true,
     };
     // Desktop and Breeze operations always run as the user; do not inject an elevated engine.
@@ -264,7 +266,9 @@ fn dispatch(operation: Operation) -> Result<ActionResult> {
         Operation::Appearance { id, settings } => crate::visual::apply_settings(&id, settings),
         Operation::Menu { id, enabled } => crate::shell_engine::toggle_menu(&id, enabled),
         Operation::RestoreCategory { category } => {
-            if category == "all-last" {
+            if category == "pending" {
+                crate::shell_engine::recover_pending()
+            } else if category == "all-last" {
                 crate::shell_engine::undo()
             } else {
                 crate::shell_engine::restore(&category)

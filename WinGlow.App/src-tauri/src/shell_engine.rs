@@ -382,6 +382,31 @@ pub fn undo() -> Result<ActionResult> {
             mode: "last".into(),
         });
     };
+    undo_snapshot(source)?;
+    Ok(ActionResult {
+        message: "已撤销。字体或菜单的完整恢复可能需要注销。".into(),
+    })
+}
+
+pub fn recover_pending() -> Result<ActionResult> {
+    let sources = transaction::pending_directories(&font_engine::backup_root()?)?;
+    // Check every journal before writing; a corrupt backup must not be dismissed.
+    for source in &sources {
+        transaction::read_journal(source)?;
+    }
+    for source in &sources {
+        undo_snapshot(source)?;
+    }
+    Ok(ActionResult {
+        message: if sources.is_empty() {
+            "没有未完成的修改，状态已重新检查。".into()
+        } else {
+            "已恢复未完成修改前的设置。".into()
+        },
+    })
+}
+
+fn undo_snapshot(source: &std::path::Path) -> Result<()> {
     let j = transaction::read_journal(source)?;
     let labels = j.desktop_labels_before.or_else(|| {
         j.before
@@ -435,9 +460,7 @@ pub fn undo() -> Result<ActionResult> {
     )?;
     notify();
     font_engine::notify();
-    Ok(ActionResult {
-        message: "已撤销。字体或菜单的完整恢复可能需要注销。".into(),
-    })
+    Ok(())
 }
 fn preserve_view_bits(entries: &mut [Entry]) -> Result<()> {
     // Preserve missing values exactly; merge only our bit for existing DWORDs.

@@ -187,6 +187,13 @@ pub fn is_pending(dir: &Path) -> bool {
         && !dir.join("quarantined").exists()
 }
 
+pub fn pending_directories(root: &Path) -> Result<Vec<PathBuf>> {
+    Ok(backup_directories(root)?
+        .into_iter()
+        .filter(|dir| is_pending(dir))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -662,5 +669,38 @@ mod tests {
         assert!(!is_pending(&d));
         assert_eq!(fs::read(d.join("snapshot.json")).unwrap(), b"{broken");
         fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn pending_recovery_selects_only_unfinished_snapshots_newest_first() {
+        let root = dir();
+        fs::create_dir_all(&root).unwrap();
+        for (name, marker) in [
+            ("font-v3-01", None),
+            ("font-v3-02", Some("committed")),
+            ("font-v3-03", Some("rolled-back")),
+            ("font-v3-04", Some("recovered")),
+            ("font-v3-05", Some("quarantined")),
+            ("font-v3-06", None),
+        ] {
+            let backup = root.join(name);
+            fs::create_dir(&backup).unwrap();
+            fs::write(backup.join("snapshot.json"), b"{}").unwrap();
+            if let Some(marker) = marker {
+                persist_new(&backup.join(marker), b"ok").unwrap();
+            }
+        }
+        let pending = pending_directories(&root).unwrap();
+        assert_eq!(
+            pending,
+            vec![root.join("font-v3-06"), root.join("font-v3-01")]
+        );
+        for backup in &pending {
+            persist_new(&backup.join("recovered"), b"ok").unwrap();
+        }
+        assert!(pending_directories(&root).unwrap().is_empty());
+        assert!(root.join("font-v3-02/committed").exists());
+        assert!(!root.join("font-v3-02/undone").exists());
+        fs::remove_dir_all(root).unwrap();
     }
 }

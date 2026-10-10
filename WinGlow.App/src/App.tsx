@@ -8,7 +8,7 @@ import { AppUpdates } from "./components/AppUpdates";
 import { VisualSettings } from "./components/VisualSettings";
 import appIcon from "./assets/app-icon.png";
 import { cn } from "./lib/cn";
-import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, repairSystem, repairProgress, optimizeSystem, optimizeMenu, optionalTool, refreshMenuDictionary } from "./lib/tauri";
+import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, optimizeSystem, optimizeMenu, optionalTool, refreshMenuDictionary } from "./lib/tauri";
 import type { BootstrapPayload, PageId, ShellState, ActionResult } from "./types";
 
 const pages = [
@@ -80,7 +80,8 @@ export default function App() {
   const selected = bootstrap?.presets.find(p => p.id === selectedId);
   const harmonySelected = selectedId === "harmonyos-sc" || selectedId === "harmonyos-sc-bold";
   const familyPresets = bootstrap?.presets.filter(p => p.id !== "harmonyos-sc-bold") ?? [];
-  const blocked = !desktop || busy || loading || !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending;
+  const pendingRecovery = !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending;
+  const blocked = !desktop || busy || loading || pendingRecovery;
   async function mutate(operation: () => Promise<ActionResult>) {
     if (busy) return;
     setBusy(true); setNotice(null);
@@ -112,9 +113,8 @@ export default function App() {
         <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观</h1><p>舒服的字体，清爽的菜单，柔和的磨砂效果。</p></div>
         {!shell && !loading && <button className="button secondary" onClick={() => void reload()}>重新读取</button>}
         <div className="home-actions"><button className="button primary optimize-button" disabled={blocked || !shell || shell.optimizationActive} title="首次使用需联网准备 Breeze。完成后自动刷新资源管理器，文件窗口可能关闭。" onClick={() => void mutate(() => optimizeSystem())}><Sparkles size={20} />{busy ? "正在处理…" : shell?.optimizationActive && !shell.optimizationPending ? "已优化" : "一键优化"}</button>
-          {shell?.optimizationActive && <button className="button secondary home-restore" disabled={!desktop || busy || loading} onClick={() => void mutate(() => optimizeSystem(true))}><RotateCcw size={17} />{shell.optimizationPending ? "继续恢复" : "撤销优化"}</button>}
+          {shell?.optimizationActive && !shell.optimizationPending && <button className="button secondary home-restore" disabled={!desktop || busy || loading} onClick={() => void mutate(() => optimizeSystem(true))}><RotateCcw size={17} />撤销优化</button>}
         </div>
-        {shell?.optimizationPending && <p className="home-recovery" role="alert">上次优化未完成，请点击继续恢复。</p>}
         {shell && !shell.taskbarSupported && <p className="home-support">透明任务栏需要 Windows 11。</p>}
       </section> : page === "fonts" ? <><h1>字体</h1>
         {loading && !bootstrap ? <div className="empty-state"><p>正在读取…</p></div> : !bootstrap ? <div className="empty-state"><button className="button secondary" onClick={() => void reload(true)}>重试</button></div> : <>
@@ -146,7 +146,7 @@ export default function App() {
           <button className="text-button" disabled={!desktop || !bootstrap} onClick={() => { if (bootstrap) void openBackup().catch(error => setNotice({ text: String(error), error: true })); }}>打开备份</button>
           <div className="dictionary-settings"><span>菜单识别库</span><button className="button secondary" disabled={blocked} onClick={() => void mutate(refreshMenuDictionary)}>检查更新</button></div>
         </>}
-      {page !== "home" && (bootstrap?.pendingRecovery || shell?.pendingRecovery) && <div className="notice error" role="alert"><p>{bootstrap?.pendingRecovery || "上次修改没有完成，请先还原。"}</p><button className="button secondary" disabled={busy || !desktop} onClick={() => { navigate("settings"); }}>去还原</button></div>}
+      {pendingRecovery && <div className="notice error" role="alert"><p>{bootstrap?.pendingRecovery || "上次修改没有完成，请先还原。"}</p><button className="button secondary" disabled={busy || loading || !desktop} onClick={() => void mutate(recoverPending)}>{busy ? "正在恢复…" : "恢复未完成修改"}</button></div>}
       <AppUpdates settings={page === "settings"} blocked={busy || repairing || !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending} />
       {repairing && <div className="notice" role="status">{repairStage}</div>}
       {notice && <div className={cn("notice", notice.error && "error")} role={notice.error ? "alert" : "status"}>{notice.text}</div>}
