@@ -8,7 +8,7 @@ import { AppUpdates } from "./components/AppUpdates";
 import { VisualSettings } from "./components/VisualSettings";
 import appIcon from "./assets/app-icon.png";
 import { cn } from "./lib/cn";
-import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, optimizeSystem, optimizeMenu, optionalTool, refreshMenuDictionary } from "./lib/tauri";
+import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, optimizeSystem, optimizeMenu, optionalTool, chooseWallpaper, wallpaperControl, refreshMenuDictionary } from "./lib/tauri";
 import type { BootstrapPayload, PageId, ShellState, ActionResult } from "./types";
 
 const pages = [
@@ -136,7 +136,18 @@ export default function App() {
             {shell.tweaks.map(tweak => <div className="setting-row" key={tweak.id}><div><h2>{tweak.label}</h2>{tweak.note && <p>{tweak.note}</p>}</div><Switch label={tweak.label} checked={tweak.enabled} disabled={blocked} onChange={value => void mutate(() => setTweak(tweak.id, value))} /></div>)}
           </div>
           <section className="optional-section" aria-labelledby="optional-heading"><h2 id="optional-heading">可选功能</h2>
-            {shell.optionalTools.map(tool => <div className="setting-row" key={tool.id}><div><h3>{tool.label}</h3><p>{tool.note}</p></div><div className="optional-actions"><button className="button secondary" disabled={blocked || !tool.supported} onClick={() => void mutate(() => optionalTool(tool.id, tool.installed ? "open" : "install"))}>{tool.installed ? "打开" : "安装"}</button>{tool.managed && <RestoreButton label="还原" description={`卸载 WinGlow 安装的${tool.label}，恢复启用前的配置。`} disabled={blocked} onRestore={() => void mutate(() => optionalTool(tool.id, "remove"))} />}</div></div>)}
+            {shell.optionalTools.map(tool => <div className="setting-row optional-row" key={tool.id}>
+              <div><h3>{tool.label}</h3><p>{tool.note}</p></div>
+              <div className="optional-actions">
+                <button className="button secondary" disabled={blocked || (!tool.installed && !tool.supported)} onClick={() => void mutate(() => optionalTool(tool.id, tool.installed ? "open" : "install"))}>{tool.installed ? (tool.id === "lively" ? "壁纸库" : "经典布局设置") : "安装"}</button>
+                {tool.installed && tool.id === "explorer-patcher" && <button className="button secondary" disabled={blocked} onClick={() => void mutate(() => optionalTool(tool.id, "system-taskbar"))}>恢复系统任务栏</button>}
+                {tool.managed && <RestoreButton label="还原" description={`卸载 WinGlow 安装的${tool.label}，恢复启用前的配置。`} disabled={blocked} onRestore={() => void mutate(() => optionalTool(tool.id, "remove"))} />}
+              </div>
+              {tool.installed && tool.id === "lively" && <div className="wallpaper-controls">
+                <button className="button secondary" disabled={blocked} onClick={() => void mutate(chooseWallpaper)}>选择视频或动图</button>
+                {([ ["pause", "暂停"], ["play", "继续"], ["mute", "静音"], ["stop", "停止壁纸"] ] as const).map(([action, label]) => <button className="button secondary" key={action} disabled={blocked} onClick={() => void mutate(() => wallpaperControl(action))}>{label}</button>)}
+              </div>}
+            </div>)}
           </section>
         </>}</> : <>
           <h1>还原</h1><div className="restore-actions">

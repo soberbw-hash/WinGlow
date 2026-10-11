@@ -212,6 +212,9 @@ pub fn sync() -> Result<()> {
     if !enabled()? {
         return stop();
     }
+    resume_runtime()
+}
+pub(crate) fn resume_runtime() -> Result<()> {
     prepare()?;
     if running()? {
         return Ok(());

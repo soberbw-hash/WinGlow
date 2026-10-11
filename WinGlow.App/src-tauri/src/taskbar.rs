@@ -339,6 +339,9 @@ pub fn sync() -> Result<()> {
     if !enabled()? {
         return stop();
     }
+    resume_runtime()
+}
+pub(crate) fn resume_runtime() -> Result<()> {
     crate::desktop_access::ensure_compatible()?;
     prepare()?;
     if processes()?.iter().any(|(_, p)| {

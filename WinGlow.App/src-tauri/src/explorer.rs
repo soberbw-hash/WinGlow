@@ -327,6 +327,61 @@ fn recover_effects() -> Result<()> {
     let visual = crate::visual::sync();
     finish_runtime(finish_runtime(taskbar, || breeze), || visual)
 }
+/// Protect effects around installers which restart Explorer themselves. Never
+/// restart Explorer again after installation; wait for its own refresh to settle.
+pub(crate) fn external_refresh(
+    operation: impl FnOnce() -> Result<ActionResult>,
+) -> Result<ActionResult> {
+    let wallpaper = crate::optional_tools::WallpaperRefresh::capture()?;
+    crate::taskbar::preflight()?;
+    let taskbar_running = crate::taskbar::running()?;
+    let breeze_running = crate::breeze::running()?;
+    if breeze_running {
+        crate::breeze::prepare()?;
+    }
+    let result = (|| {
+        wallpaper.pause()?;
+        crate::taskbar::pause_owned()?;
+        crate::breeze::pause_owned()?;
+        operation()
+    })();
+    let recovery = finish_runtime(
+        wait_for_taskbar().and_then(|()| {
+            let taskbar = if taskbar_running {
+                crate::taskbar::resume_runtime()
+            } else {
+                Ok(())
+            };
+            let breeze = if breeze_running {
+                crate::breeze::resume_runtime()
+            } else {
+                Ok(())
+            };
+            finish_runtime(finish_runtime(taskbar, || breeze), crate::visual::sync)
+        }),
+        crate::optional_tools::resume_lively_after_refresh,
+    );
+    OBSERVED_SHELL.store(
+        if recovery.is_ok() {
+            shell_pid().unwrap_or(0)
+        } else {
+            0
+        },
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    match (result, recovery) {
+        (Ok(mut result), Err(error)) => {
+            result
+                .message
+                .push_str(&format!(" 桌面效果恢复未完成：{error:#}"));
+            Ok(result)
+        }
+        (Err(error), Err(recovery)) => {
+            Err(error.context(format!("桌面效果恢复未完成：{recovery:#}")))
+        }
+        (result, _) => result,
+    }
+}
 pub fn restart() -> Result<()> {
     let wallpaper = crate::optional_tools::WallpaperRefresh::capture()?;
     let result = protected_refresh(

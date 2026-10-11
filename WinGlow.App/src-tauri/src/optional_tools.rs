@@ -215,7 +215,10 @@ fn installed(t: &Tool) -> Result<bool> {
 }
 fn ep_supported() -> bool {
     let b = crate::visual::build();
-    cfg!(target_arch = "x86_64") && matches!(b, 22621 | 22631 | 26100 | 26200 | 26300 | 28000)
+    cfg!(target_arch = "x86_64") && ep_build_supported(b)
+}
+fn ep_build_supported(build: u32) -> bool {
+    matches!(build, 22621 | 22631 | 26100 | 26200)
 }
 fn sac_enabled() -> bool {
     RegKey::predef(HKEY_LOCAL_MACHINE)
@@ -581,7 +584,7 @@ pub fn perform(id: &str, action: &str) -> Result<ActionResult> {
                 return Err(e);
             }
             Ok(ActionResult {
-                message: format!("{} 已安装。点击打开，选择你喜欢的效果。", t.label),
+                message: format!("{} 已安装。使用该功能右侧的设置按钮。", t.label),
             })
         }
         "open" => {
@@ -596,9 +599,13 @@ pub fn perform(id: &str, action: &str) -> Result<ActionResult> {
                     lively_existing().context("无法定位已有壁纸软件。")?
                 };
                 runtime::preflight(&exe)?;
-                runtime::command(&exe)
-                    .args(["app", "--showApp", "true"])
-                    .spawn()?;
+                if runtime::own_running(&exe)? {
+                    runtime::command(&exe)
+                        .args(["app", "--showApp", "true"])
+                        .spawn()?;
+                } else {
+                    runtime::command(&exe).spawn()?;
+                }
             } else {
                 let arg = format!("\"{}\",ZZGUI", own_exe(t)?.display());
                 use windows::{
@@ -627,6 +634,18 @@ pub fn perform(id: &str, action: &str) -> Result<ActionResult> {
             }
             Ok(ActionResult {
                 message: format!("已打开{}。", t.label),
+            })
+        }
+        "system-taskbar" if t.id == "explorer-patcher" => {
+            if !installed(t)? {
+                bail!("经典布局未安装，无需恢复。");
+            }
+            backup(t)?;
+            let (key, _) =
+                RegKey::predef(HKEY_CURRENT_USER).create_subkey("Software\\ExplorerPatcher")?;
+            key.set_value("OldTaskbar", &0u32)?;
+            Ok(ActionResult {
+                message: "已恢复系统任务栏，经典布局的其他设置保留。".into(),
             })
         }
         "remove" => {
@@ -682,37 +701,129 @@ pub fn run(id: String, action: String) -> Result<ActionResult> {
     tool(&id)?;
     let _guard = worker::optimization_lock()?;
     crate::shell_engine::ensure_ready()?;
+    if id == "explorer-patcher" && action == "install" && (!ep_supported() || sac_enabled()) {
+        bail!("当前系统未通过经典布局兼容验证，未安装。其他美化功能可正常使用。");
+    }
+    if id == "explorer-patcher" && action == "system-taskbar" {
+        let result = worker::run_inner(crate::models::Operation::OptionalTool { id, verb: action });
+        return crate::explorer::finish(result, true, crate::explorer::restart);
+    }
     if action == "install"
         || action == "remove" && id == "explorer-patcher" && own_exe(tool(&id)?)?.is_file()
     {
         prepare(&id)?;
     }
-    // EP's installer refreshes Explorer itself. Pause TTB before it, and always restore runtime.
+    // EP's installer refreshes Explorer itself; protect all desktop-dependent effects.
     let refresh = id == "explorer-patcher" && matches!(action.as_str(), "install" | "remove");
+    let operation =
+        || worker::run_inner(crate::models::Operation::OptionalTool { id, verb: action });
     if refresh {
-        crate::taskbar::preflight()?;
-        crate::taskbar::pause_owned()?;
-    }
-    let result = worker::run_inner(crate::models::Operation::OptionalTool { id, verb: action });
-    let resume = if refresh {
-        crate::explorer::wait_for_taskbar().and_then(|_| crate::taskbar::sync())
+        crate::explorer::external_refresh(operation)
     } else {
-        Ok(())
-    };
-    match (result, resume) {
-        (Ok(mut result), Err(e)) => {
-            result
-                .message
-                .push_str(&format!(" 任务栏恢复未完成：{e:#}"));
-            Ok(result)
-        }
-        (Err(e), Err(resume)) => Err(e.context(format!("任务栏恢复未完成：{resume:#}"))),
-        (result, _) => result,
+        operation()
     }
+}
+
+fn media_path(path: &Path) -> Result<()> {
+    if !path.is_absolute() || path.to_string_lossy().starts_with("\\\\") || !path.is_file() {
+        bail!("请选择本机的视频或动图文件。");
+    }
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if !matches!(extension.as_str(), "mp4" | "webm" | "gif") {
+        bail!("支持 MP4、WebM 视频与 GIF 动图。");
+    }
+    Ok(())
+}
+
+pub fn wallpaper_control(action: &str, path: Option<PathBuf>) -> Result<ActionResult> {
+    let _guard = worker::optimization_lock()?;
+    crate::shell_engine::ensure_ready()?;
+    crate::desktop_access::ensure_compatible()?;
+    let args: Vec<String> = match action {
+        "choose" => {
+            let path = path.context("未选择壁纸文件。")?;
+            media_path(&path)?;
+            vec![
+                "setwp".into(),
+                "--file".into(),
+                path.to_string_lossy().into_owned(),
+            ]
+        }
+        "pause" => vec!["app".into(), "--play".into(), "false".into()],
+        "play" => vec!["app".into(), "--play".into(), "true".into()],
+        "mute" => vec!["app".into(), "--volume".into(), "0".into()],
+        "stop" => vec!["closewp".into(), "--monitor".into(), "-1".into()],
+        _ => bail!("未知壁纸操作。"),
+    };
+    let exe = if own_exe(&LIVELY)?.is_file() {
+        own_exe(&LIVELY)?
+    } else {
+        lively_existing().context("请先安装动态壁纸。")?
+    };
+    runtime::preflight(&exe)?;
+    backup(&LIVELY)?;
+    if !runtime::own_running(&exe)? {
+        runtime::command(&exe).spawn()?;
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while !runtime::own_running(&exe)? {
+            if Instant::now() >= deadline {
+                bail!("动态壁纸启动超时。");
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        // Lively's secondary process forwards commands to the initialized core.
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    let mut child = runtime::command(&exe).args(&args).spawn()?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        if let Some(status) = child.try_wait()? {
+            if !status.success() {
+                bail!("动态壁纸未接受操作请求。");
+            }
+            break;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("动态壁纸操作超时，请打开壁纸库检查组件状态。");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(ActionResult {
+        message: "已发送壁纸设置，画面由动态壁纸组件更新。".into(),
+    })
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reject_untested_explorer_patcher_builds() {
+        for build in [22621, 22631, 26100, 26200] {
+            assert!(ep_build_supported(build));
+        }
+        for build in [22000, 26300, 28000, 30000] {
+            assert!(!ep_build_supported(build));
+        }
+    }
+    #[test]
+    fn wallpaper_requires_existing_local_media() {
+        let dir = std::env::temp_dir().join(uuid::Uuid::new_v4().to_string());
+        fs::create_dir(&dir).unwrap();
+        let video = dir.join("壁纸.mp4");
+        let executable = dir.join("script.exe");
+        fs::write(&video, b"test").unwrap();
+        fs::write(&executable, b"test").unwrap();
+        assert!(media_path(&video).is_ok());
+        assert!(media_path(&executable).is_err());
+        assert!(media_path(Path::new("relative.mp4")).is_err());
+        assert!(media_path(&dir.join("missing.mp4")).is_err());
+        fs::remove_dir_all(&dir).unwrap();
+    }
     #[test]
     fn closed_tool_and_action_paths() {
         assert!(tool("../../setup.exe").is_err());

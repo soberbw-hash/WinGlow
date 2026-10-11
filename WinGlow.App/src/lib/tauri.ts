@@ -40,5 +40,8 @@ export const repairProgress = () => invoke<RepairProgress>("repair_progress");
 export const optimizeSystem = (restore = false) => invoke<ActionResult>("optimize_system", { restore });
 export const optimizeMenu = () => invoke<ActionResult>("optimize_menu");
 export const openBackup = () => invoke<void>("open_backup");
-export const optionalTool = (id: string, action: "install" | "open" | "remove") => invoke<ActionResult>("optional_tool", { id, action });
+export const optionalTool = (id: string, action: "install" | "open" | "remove" | "system-taskbar") => invoke<ActionResult>("optional_tool", { id, action });
 export const refreshMenuDictionary = () => invoke<ActionResult>("refresh_menu_dictionary");
+
+export const chooseWallpaper = () => invoke<ActionResult>("choose_wallpaper");
+export const wallpaperControl = (action: "pause" | "play" | "mute" | "stop") => invoke<ActionResult>("wallpaper_control", { action });

@@ -190,7 +190,9 @@ pub fn run(operation: Operation) -> Result<ActionResult> {
 
 pub(crate) fn run_inner(operation: Operation) -> Result<ActionResult> {
     let needs_admin = match &operation {
-        Operation::OptionalTool { id, verb } => id == "explorer-patcher" && verb != "open",
+        Operation::OptionalTool { id, verb } => {
+            id == "explorer-patcher" && matches!(verb.as_str(), "install" | "remove")
+        }
         Operation::Toggle { .. } | Operation::Appearance { .. } => false,
         Operation::Menu { id, .. } => crate::menu::needs_admin(id)?,
         Operation::RestoreCategory { category } => {

@@ -239,6 +239,8 @@ pub fn run() {
             check_updates,
             install_update,
             optional_tool,
+            wallpaper_control,
+            choose_wallpaper,
             refresh_menu_dictionary
         ])
         .run(tauri::generate_context!())
@@ -266,6 +268,35 @@ async fn optional_tool(id: String, action: String) -> Result<ActionResult, Strin
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn wallpaper_control(action: String) -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || optional_tools::wallpaper_control(&action, None))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn choose_wallpaper(app: tauri::AppHandle) -> Result<ActionResult, String> {
+    use tauri_plugin_dialog::DialogExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(file) = app
+            .dialog()
+            .file()
+            .add_filter("视频和动图", &["mp4", "webm", "gif"])
+            .blocking_pick_file()
+        else {
+            return Ok(ActionResult {
+                message: String::new(),
+            });
+        };
+        let path = file.into_path().map_err(|e| e.to_string())?;
+        optional_tools::wallpaper_control("choose", Some(path)).map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 async fn refresh_menu_dictionary() -> Result<ActionResult, String> {

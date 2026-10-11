@@ -217,3 +217,7 @@ input, select, textarea { font-family: inherit; }
 .menu-toolbar .menu-status { width: 104px; flex-shrink: 0; min-height: 36px; padding: 5px 8px; border: 1px solid var(--brand-line); border-radius: 8px; background: white; color: var(--color-slate-600); font-size: 12px; }
 .dictionary-settings { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--brand-line); font-size: 14px; }
 @media (max-height: 650px) { .home-page { padding-bottom: 44px; } .home-intro img { width: 80px; height: 80px; margin-bottom: 20px; } }
+
+.optional-section .optional-row { flex-wrap: wrap; }
+.optional-actions, .wallpaper-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.wallpaper-controls { width: 100%; }
