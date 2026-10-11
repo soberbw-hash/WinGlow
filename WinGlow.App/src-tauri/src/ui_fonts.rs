@@ -157,18 +157,23 @@ fn scale(font: &mut LOGFONTW, from: u32, to: u32) {
     font.lfHeight = convert(font.lfHeight);
     font.lfWidth = convert(font.lfWidth);
 }
-pub fn write(value: &StoredValue) -> Result<()> {
-    let snapshot = decode(value)?;
-    let _context = DpiContext::enter()?;
-    let dpi = unsafe { GetDpiForSystem() };
+fn logical_fonts(snapshot: &Snapshot) -> Result<Vec<LOGFONTW>> {
     let mut fonts = snapshot
         .fonts
         .iter()
         .map(|b| font(b))
         .collect::<Result<Vec<_>>>()?;
     for font in &mut fonts {
-        scale(font, snapshot.dpi, dpi);
+        // SPI_SET accepts logical 96-DPI font sizes even for a system-aware
+        // caller. Profile WindowMetrics entries, in contrast, keep actual sizes.
+        scale(font, snapshot.dpi, 96);
     }
+    Ok(fonts)
+}
+pub fn write(value: &StoredValue) -> Result<()> {
+    let snapshot = decode(value)?;
+    let _context = DpiContext::enter()?;
+    let mut fonts = logical_fonts(&snapshot)?;
     // Read dimensions afresh: only the six fonts are changed, never menu/window sizes.
     let mut metrics = metrics()?;
     metrics.lfCaptionFont = fonts[0];
@@ -215,8 +220,9 @@ fn entries(snapshot: &Snapshot, family: &str, heavier: bool) -> Result<Vec<Entry
     let desired = retarget(snapshot, family, if heavier { 700 } else { 400 })?;
     let mut entries = Vec::new();
     for (name, stored) in NAMES.iter().zip(&desired.fonts) {
-        let mut value = font(stored)?;
-        scale(&mut value, desired.dpi, 96);
+        // WindowMetrics stores font heights at the profile's actual DPI.
+        // Normalizing to 96 shrinks 150% text from -18 to -12 after logon.
+        let value = font(stored)?;
         entries.push(Entry {
             slot: registry::slot(Scope::WindowMetrics, *name),
             value: Some(StoredValue {
@@ -287,7 +293,7 @@ mod tests {
             font(&planned[2].value.as_ref().unwrap().bytes)
                 .unwrap()
                 .lfHeight,
-            -12
+            -24
         );
         let live = decode(planned[6].value.as_ref().unwrap()).unwrap();
         assert_eq!(live.dpi, 192);
@@ -310,6 +316,48 @@ mod tests {
         invalid = snapshot();
         invalid.fonts[0].truncate(12);
         assert!(decode(&encode(&invalid).unwrap()).is_err());
+    }
+    #[test]
+    fn dpi_matrix_keeps_profile_sizes_and_uses_logical_spi_units() {
+        // 100%, 125%, 150%, 175%, 200%, 225%, 250%, 300%.
+        // Exercise distinct user sizes for all six roles, not just the default.
+        for dpi in [96, 120, 144, 168, 192, 216, 240, 288] {
+            let mut source = snapshot();
+            source.dpi = dpi;
+            for (index, stored) in source.fonts.iter_mut().enumerate() {
+                let mut value = font(stored).unwrap();
+                value.lfHeight = -(12 + index as i32 * 4);
+                value.lfWidth = index as i32 * 4;
+                scale(&mut value, 96, dpi);
+                *stored = bytes(&value);
+            }
+            for heavier in [false, true] {
+                let planned = entries(&source, "HarmonyOS Sans SC", heavier).unwrap();
+                let live = decode(planned[6].value.as_ref().unwrap()).unwrap();
+                let api_fonts = logical_fonts(&live).unwrap();
+                for index in 0..6 {
+                    let original = font(&source.fonts[index]).unwrap();
+                    let saved = font(&planned[index].value.as_ref().unwrap().bytes).unwrap();
+                    assert_eq!(saved.lfHeight, original.lfHeight, "profile DPI {dpi}");
+                    assert_eq!(saved.lfWidth, original.lfWidth);
+                    assert_eq!(
+                        api_fonts[index].lfHeight,
+                        -(12 + index as i32 * 4),
+                        "SPI DPI {dpi}"
+                    );
+                    assert_eq!(api_fonts[index].lfWidth, index as i32 * 4);
+                }
+                // Reapplying a plan must not shrink fonts on each optimization.
+                assert_eq!(
+                    entries(&live, "HarmonyOS Sans SC", heavier).unwrap(),
+                    planned
+                );
+                // Restoring an old snapshot uses its recorded DPI, even after
+                // moving to a display with a different scale.
+                let restored = logical_fonts(&decode(&encode(&source).unwrap()).unwrap()).unwrap();
+                assert_eq!(restored[5].lfHeight, -32);
+            }
+        }
     }
     #[test]
     fn native_read_is_only_read_and_round_trips() {

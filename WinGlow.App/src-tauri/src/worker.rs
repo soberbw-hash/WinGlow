@@ -162,8 +162,14 @@ fn request_dir(nonce: &str) -> Result<std::path::PathBuf> {
 }
 
 pub fn run(operation: Operation) -> Result<ActionResult> {
+    run_with_refresh(operation, true)
+}
+pub(crate) fn run_deferred(operation: Operation) -> Result<ActionResult> {
+    run_with_refresh(operation, false)
+}
+fn run_with_refresh(operation: Operation, allow_refresh: bool) -> Result<ActionResult> {
     let _optimization_guard = optimization_lock()?;
-    let refresh = crate::explorer::needed(&operation);
+    let refresh = allow_refresh && crate::explorer::needed(&operation);
     let sync_taskbar = matches!(&operation, Operation::RestoreCategory {category} if category == "details" || category == "all-last" || category == "pending");
     let mut outcome = run_inner(operation);
     if sync_taskbar
@@ -193,7 +199,11 @@ pub(crate) fn run_inner(operation: Operation) -> Result<ActionResult> {
         Operation::OptionalTool { id, verb } => {
             id == "explorer-patcher" && matches!(verb.as_str(), "install" | "remove")
         }
-        Operation::Toggle { .. } | Operation::Appearance { .. } => false,
+        Operation::Toggle { .. }
+        | Operation::Appearance { .. }
+        | Operation::TaskbarSettings { .. }
+        | Operation::ClassicSettings { .. }
+        | Operation::RestoreClassic => false,
         Operation::Menu { id, .. } => crate::menu::needs_admin(id)?,
         Operation::RestoreCategory { category } => {
             matches!(category.as_str(), "menu" | "all-last" | "pending")
@@ -278,7 +288,11 @@ fn dispatch(operation: Operation) -> Result<ActionResult> {
         }
         Operation::OptimizeCore { token } => crate::optimization::core(&token),
         Operation::UndoOptimization { token } => crate::optimization::undo_core(&token),
+        Operation::RollbackUpgrade { token } => crate::optimization::rollback_upgrade_core(&token),
         Operation::OptimizeMenu => crate::optimization::menu_only(),
+        Operation::TaskbarSettings { settings } => crate::desktop_settings::apply_taskbar(settings),
+        Operation::ClassicSettings { settings } => crate::desktop_settings::apply_classic(settings),
+        Operation::RestoreClassic => crate::desktop_settings::restore_classic(),
         Operation::Repair => crate::repair::run(),
         font_operation => font_engine::perform(font_operation),
     }
@@ -362,6 +376,24 @@ pub fn handle_cli() -> bool {
     if args.iter().any(|a| a == "--verify-native-menu") {
         if let Err(e) = crate::menu_diagnostics::run() {
             eprintln!("{e:#}");
+        }
+        return true;
+    }
+    if args.iter().any(|a| a == "--verify-wallpaper-carousel") {
+        if let Err(error) = crate::optional_tools::diagnose_carousel() {
+            eprintln!("{error:#}");
+        }
+        return true;
+    }
+    if args.iter().any(|a| a == "--verify-integrated-controls") {
+        if let Err(error) = crate::optional_tools::diagnose_integrated_controls() {
+            eprintln!("{error:#}");
+        }
+        return true;
+    }
+    if args.iter().any(|a| a == "--restore-wallpaper-checkpoint") {
+        if let Err(error) = crate::optional_tools::recover_carousel_probe() {
+            eprintln!("{error:#}");
         }
         return true;
     }

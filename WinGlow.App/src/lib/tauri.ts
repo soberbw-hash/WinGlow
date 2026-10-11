@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { ActionResult, BootstrapPayload, ShellState, RepairProgress, Appearance } from "../types";
+import type { ActionResult, BootstrapPayload, ShellState, RepairProgress, Appearance, DesktopSettings, TaskbarSettings, ClassicSettings } from "../types";
 // Browser previews cannot write Windows settings or report a simulated success.
 export async function loadBootstrap(): Promise<BootstrapPayload> {
   if (isTauri()) return invoke("load_bootstrap");
@@ -44,4 +44,15 @@ export const optionalTool = (id: string, action: "install" | "open" | "remove" |
 export const refreshMenuDictionary = () => invoke<ActionResult>("refresh_menu_dictionary");
 
 export const chooseWallpaper = () => invoke<ActionResult>("choose_wallpaper");
-export const wallpaperControl = (action: "pause" | "play" | "mute" | "stop") => invoke<ActionResult>("wallpaper_control", { action });
+export const optimizationUpgradeStatus = () => invoke<{running:boolean;finished:boolean;message:string;error:boolean}>("optimization_upgrade_status");
+export const retryOptimizationUpgrade = () => invoke<ActionResult>("retry_optimization_upgrade");
+export const wallpaperControl = (action: "pause" | "play" | "mute" | "stop" | "restore-settings") => invoke<ActionResult>("wallpaper_control", { action });
+export async function loadDesktopSettings():Promise<DesktopSettings> {
+  if(isTauri()) return invoke("load_desktop_settings");
+  return {taskbar:{desktop:{accent:"blur",color:"#000000",opacity:0,showLine:true},maximized:null,startOpen:null},classic:{taskbar:0,alignment:1,combine:0,smallIcons:false,startMenu:0},wallpaper:{items:[{id:"builtin:carousel",title:"自动轮播",preview:null,scene:null},{id:"builtin:night",title:"夜色",preview:null,scene:"night"},{id:"builtin:sea",title:"海色",preview:null,scene:"sea"},{id:"builtin:dawn",title:"晨光",preview:null,scene:"dawn"}],selected:null,intervalMinutes:5,volume:0,canRestore:false}};
+}
+export const applyTaskbarSettings = (settings:TaskbarSettings)=>invoke<ActionResult>("apply_taskbar_settings",{settings});
+export const applyClassicSettings = (settings:ClassicSettings)=>invoke<ActionResult>("apply_classic_settings",{settings});
+export const restoreClassicSettings = ()=>invoke<ActionResult>("restore_classic_settings");
+export const selectWallpaper = (id:string,minutes:number)=>invoke<ActionResult>("select_wallpaper",{id,minutes});
+export const setWallpaperVolume = (volume:number)=>invoke<ActionResult>("set_wallpaper_volume",{volume});

@@ -38,6 +38,7 @@ pub enum Scope {
     WindowMetrics,
     LiveUiFonts,
     TaskbarConfig,
+    ClassicConfig,
     ArchiveFilter,
     VisualConfig,
 }
@@ -72,6 +73,7 @@ impl Scope {
             }
             Self::Startup => r"Software\Microsoft\Windows\CurrentVersion\Run".into(),
             Self::WindowMetrics => r"Control Panel\Desktop\WindowMetrics".into(),
+            Self::ClassicConfig => r"Software\ExplorerPatcher".into(),
             Self::TaskbarConfig => String::new(),
             Self::ArchiveFilter => String::new(),
             Self::VisualConfig => String::new(),
@@ -208,12 +210,22 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
         }
         Scope::Explorer => matches!(
             slot.name.as_str(),
-            "HideIcons" | "HideFileExt" | "TaskbarGlomLevel"
+            "HideIcons"
+                | "HideFileExt"
+                | "TaskbarGlomLevel"
+                | "MMTaskbarGlomLevel"
+                | "TaskbarSmallIcons"
+                | "TaskbarAl"
+                | "Start_ShowClassicMode"
         ),
         Scope::IconOverrides => matches!(slot.name.as_str(), "29" | "77"),
         Scope::DesktopView => slot.name == "FFlags",
         Scope::WindowMetrics => crate::ui_fonts::NAMES.contains(&slot.name.as_str()),
         Scope::LiveUiFonts => slot.name == "Fonts",
+        Scope::ClassicConfig => matches!(
+            slot.name.as_str(),
+            "OldTaskbar" | "OldTaskbarAl" | "MMOldTaskbarAl"
+        ),
         Scope::TaskbarConfig => slot.name == "settings.json",
         Scope::ArchiveFilter => slot.name == "WinGlow-ArchiveFilter.js",
         Scope::VisualConfig => crate::visual::CONFIG_NAMES.contains(&slot.name.as_str()),
@@ -239,6 +251,7 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
                 | "WinGlow-TranslucentTB"
                 | "WinGlow-StartMenu"
                 | "WinGlow-WindowMaterial"
+                | "WinGlow-Lively"
         ),
     };
     if !allowed {

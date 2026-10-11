@@ -26,6 +26,7 @@
 .font-weight-option:has(input:focus-visible) { outline: 2px solid var(--brand-accent); outline-offset: 2px; }
 .font-weight-picker:disabled { opacity: .5; }
 * { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; overflow: hidden; }
 body { margin: 0; }
 button { cursor: pointer; font: inherit; }
 button:disabled { cursor: default; opacity: .5; }
@@ -33,14 +34,14 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--brand-accent); 
 h1,h2,p { margin: 0; }
 h1,h2 { text-wrap: balance; }
 p { text-wrap: pretty; }
-.app-shell { height: 100dvh; min-height: 440px; display: flex; flex-direction: column; background: var(--brand-canvas); }
+.app-shell { height: 100%; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--brand-canvas); }
 .titlebar { height: 36px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; background: rgb(246 251 255 / .9); user-select: none; }
 .titlebar-name { font-size: 12px; color: var(--color-slate-600); padding-left: 16px; }
 .window-controls { display: flex; height: 100%; }
 .window-controls button { width: 46px; border: 0; display: grid; place-items: center; background: transparent; color: var(--color-slate-700); }
 .window-controls button:hover { background: var(--color-slate-200); }
 .window-controls .close-window:hover { background: var(--color-red-600); color: white; }
-.workspace { flex: 1; min-height: 0; display: flex; }
+.workspace { flex: 1; min-height: 0; overflow: hidden; display: flex; }
 .sidebar { width: 192px; flex-shrink: 0; padding: 24px 12px 16px; display: flex; flex-direction: column; background: rgb(242 249 255 / .85); border-right: 1px solid var(--brand-line); }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 10px 32px; font-size: 15px; font-weight: 600; white-space: nowrap; }
 .brand img { display: block; object-fit: contain; }
@@ -49,7 +50,7 @@ nav { display: grid; gap: 6px; }
 .nav-item:hover { background: var(--color-slate-100); }
 .nav-item.active { background: linear-gradient(110deg, #e2f6ff, #edf0ff); color: var(--brand-strong); font-weight: 600; }
 .sidebar-bottom { margin-top: auto; padding-top: 24px; }
-.main-content { flex: 1; min-width: 0; padding: 28px 40px 24px; overflow: auto; }
+.main-content { position: relative; flex: 1; min-width: 0; min-height: 0; padding: 28px 40px 24px; overflow: auto; overscroll-behavior: contain; }
 h1 { font-size: 24px; line-height: 1.35; font-weight: 600; margin-bottom: 24px; }
 .font-picker { border: 0; margin: 0 0 24px; padding: 0; }
 .font-picker legend { font-size: 13px; font-weight: 500; color: var(--color-slate-600); margin-bottom: 12px; }
@@ -221,3 +222,25 @@ input, select, textarea { font-family: inherit; }
 .optional-section .optional-row { flex-wrap: wrap; }
 .optional-actions, .wallpaper-controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .wallpaper-controls { width: 100%; }
+.desktop-settings { width:100%; min-width:0; border:0; padding:0; margin:0 0 22px; }
+.desktop-control-row { display:flex; align-items:end; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+.desktop-check { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--color-slate-600); min-height:36px; }
+.desktop-check input { accent-color:var(--brand-accent); }
+.compact-color { width:100px; }
+.compact-color input { height:36px; padding:2px; border:1px solid var(--brand-line); border-radius:6px; }
+.taskbar-context { margin:14px 0; }
+.taskbar-context > .desktop-control-row { margin-top:10px; }
+.classic-settings { width:100%; }
+.control-note { font-size:13px; color:var(--color-slate-500); margin:8px 0 16px; text-wrap:pretty; }
+.wallpaper-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; margin-bottom:20px; padding:3px; }
+.wallpaper-card { background:white; border:1px solid var(--brand-line); border-radius:10px; overflow:hidden; padding:0; text-align:left; color:var(--color-slate-700); min-width:0; }
+.wallpaper-card.selected { border-color:var(--brand-accent); box-shadow:0 0 0 1px var(--brand-accent); }
+.wallpaper-card:focus-visible { outline:2px solid var(--brand-accent); outline-offset:2px; }
+.wallpaper-card > span:last-child { display:block; font-size:13px; padding:10px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wallpaper-card img,.wallpaper-preview { display:block; width:100%; aspect-ratio:16 / 9; object-fit:cover; }
+/* Swatches preview the already shipped wallpaper scenes. */
+.wallpaper-night { background:linear-gradient(150deg,#152b43,#213d61 50%,#292450); }
+.wallpaper-sea { background:linear-gradient(125deg,#173952,#306e84 55%,#769ea3); }
+.wallpaper-dawn { background:linear-gradient(140deg,#3c536e,#8b97b7 58%,#b6b4bf); }
+.wallpaper-carousel { background:linear-gradient(110deg,#213d61 0 33%,#306e84 33% 66%,#8b97b7 66%); }
+.desktop-settings:disabled { opacity:.6; }

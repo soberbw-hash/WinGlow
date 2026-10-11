@@ -318,6 +318,49 @@ mod tests {
         fs::remove_dir_all(d).unwrap();
     }
     #[test]
+    fn additive_upgrade_snapshots_restore_original_values_and_remove_new_startup() {
+        let original = slot(Scope::Substitutes, "Segoe UI");
+        let startup = slot(Scope::Startup, "WinGlow-Lively");
+        let mut store = Fake::default();
+        store.values.insert(original.clone(), string("original"));
+        let initial = store.values.clone();
+        let first = dir();
+        let second = dir();
+        execute(
+            &mut store,
+            &first,
+            "optimize:first",
+            vec![Entry {
+                slot: original.clone(),
+                value: Some(string("old-preset")),
+            }],
+            || Ok(()),
+        )
+        .unwrap();
+        execute(
+            &mut store,
+            &second,
+            "optimize:update",
+            vec![
+                Entry {
+                    slot: original,
+                    value: Some(string("new-preset")),
+                },
+                Entry {
+                    slot: startup,
+                    value: Some(string("wallpaper-engine")),
+                },
+            ],
+            || Ok(()),
+        )
+        .unwrap();
+        write_and_verify(&mut store, &read_journal(&second).unwrap().before).unwrap();
+        write_and_verify(&mut store, &read_journal(&first).unwrap().before).unwrap();
+        assert_eq!(store.values, initial);
+        fs::remove_dir_all(first).unwrap();
+        fs::remove_dir_all(second).unwrap();
+    }
+    #[test]
     fn one_click_settings_restore_config_absence_and_menu_bytes_together() {
         let desired = vec![
             Entry {

@@ -291,6 +291,7 @@ pub fn restore(category: &str) -> Result<ActionResult> {
                         | Scope::IconOverrides
                         | Scope::DesktopView
                         | Scope::TaskbarConfig
+                        | Scope::ClassicConfig
                         | Scope::VisualConfig
                 ),
             };

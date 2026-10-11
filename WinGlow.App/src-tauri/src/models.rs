@@ -58,6 +58,9 @@ pub enum Operation {
     UndoOptimization {
         token: String,
     },
+    RollbackUpgrade {
+        token: String,
+    },
     OptimizeMenu,
     Appearance {
         id: String,
@@ -67,6 +70,13 @@ pub enum Operation {
         id: String,
         verb: String,
     },
+    TaskbarSettings {
+        settings: crate::desktop_settings::TaskbarSettings,
+    },
+    ClassicSettings {
+        settings: crate::desktop_settings::ClassicSettings,
+    },
+    RestoreClassic,
     Repair,
 }
 

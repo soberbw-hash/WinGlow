@@ -4,6 +4,8 @@ async (page) => {
     window.isTauri = true;
     window.__testCalls = []; window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {unregisterListener:()=>{}};
     window.__TAURI_INTERNALS__ = {metadata:{currentWindow:{label:"main"},currentWebview:{label:"main"}},transformCallback:()=>1,unregisterCallback:()=>{},invoke: async (command, args) => {
+      if(command === 'optimization_upgrade_status') return {running:false,finished:true,message:'',error:false};
+      if(command === 'load_desktop_settings') return {taskbar:{desktop:{accent:'blur',color:'#000000',opacity:0,showLine:true},maximized:null,startOpen:null},classic:{taskbar:0,alignment:1,combine:0,smallIcons:false,startMenu:0},wallpaper:{items:[{id:'builtin:carousel',title:'自动轮播',preview:null,scene:null}],selected:null,intervalMinutes:5,volume:0,canRestore:false}};
       if(command === 'load_bootstrap') return {presets:[],activePresetId:null,activeFontLabel:'Windows 默认',currentPreviewFamily:'sans-serif',currentPreviewWeight:400,needsFontRefresh:false,backupDir:'',canRestore:false,pendingRecovery:null};
       if(command === 'load_shell') return {items:[],tweaks:[],optionalTools:[{id:'lively',label:'动态壁纸',installed:true,managed:true,supported:true,note:'选择动态壁纸'},{id:'explorer-patcher',label:'经典布局',installed:true,managed:true,supported:false,note:'当前 Windows 版本尚未验证经典布局。'}],appearance:{material:3,tint:20,radius:10},taskbarSupported:true,startMenuSupported:true,windowMaterialSupported:true,optimizationActive:false,optimizationPending:false,pendingRecovery:false};
       if(command.startsWith('plugin:event|')) return 1;
@@ -17,7 +19,7 @@ async (page) => {
     await page.setViewportSize({width,height});
     await page.goto('http://127.0.0.1:1420/');
     await page.getByRole('button',{name:'基础美化',exact:true}).click();
-    for(const name of ['壁纸库','经典布局设置','恢复系统任务栏','选择视频或动图','暂停','继续','静音','停止壁纸']) {
+    for(const name of ['恢复系统任务栏','导入视频或动图','暂停','继续','静音','停止壁纸']) {
       const button=page.getByRole('button',{name,exact:true});
       await button.waitFor();
       if(!await button.isEnabled()) throw Error('Disabled recovery/control: '+name);

@@ -1,0 +1,57 @@
+import { useState } from "react";
+import { cn } from "../lib/cn";
+import { applyTaskbarSettings,applyClassicSettings,restoreClassicSettings,selectWallpaper,setWallpaperVolume,chooseWallpaper,wallpaperControl } from "../lib/tauri";
+import type { ActionResult,TaskbarSettings,TaskbarLook,ClassicSettings,DesktopSettings } from "../types";
+type Run = (operation:()=>Promise<ActionResult>)=>Promise<void>;
+
+function TaskbarEditor({value,onChange,label}:{value:TaskbarLook;onChange:(v:TaskbarLook)=>void;label:string}) {
+  return <div className="desktop-control-row">
+    <label className="visual-control">{label}材质<select aria-label={`${label}材质`} value={value.accent} onChange={e=>onChange({...value,accent:e.target.value})}><option value="normal">系统默认</option><option value="blur">模糊</option><option value="clear">透明</option><option value="acrylic">亚克力</option><option value="opaque">不透明</option></select></label>
+    <label className="visual-control compact-color">{label}颜色<input aria-label={`${label}颜色`} type="color" value={value.color} onChange={e=>onChange({...value,color:e.target.value})}/></label>
+    <label className="visual-control">{label}颜色浓度<output>{value.opacity}%</output><input aria-label={`${label}颜色浓度`} type="range" min={0} max={100} value={value.opacity} onChange={e=>onChange({...value,opacity:Number(e.target.value)})}/></label>
+    <label className="desktop-check"><input type="checkbox" checked={value.showLine} onChange={e=>onChange({...value,showLine:e.target.checked})}/>显示任务栏细线</label>
+  </div>;
+}
+export function TaskbarControls({settings,disabled,run}:{settings:TaskbarSettings;disabled:boolean;run:Run}) {
+  const [draft,setDraft]=useState(settings);
+  const changed=JSON.stringify(draft)!==JSON.stringify(settings);
+  return <fieldset className="desktop-settings" disabled={disabled}><legend className="sr-only">任务栏外观设置</legend>
+    <TaskbarEditor value={draft.desktop} label="桌面时" onChange={desktop=>setDraft({...draft,desktop})}/>
+    {([ ["maximized","窗口最大化时"],["startOpen","打开开始菜单时"] ] as const).map(([key,label])=><div className="taskbar-context" key={key}>
+      <label className="desktop-check"><input type="checkbox" checked={draft[key]!==null} onChange={e=>setDraft({...draft,[key]:e.target.checked?{...draft.desktop}:null})}/>{label}使用不同效果</label>
+      {draft[key] && <TaskbarEditor value={draft[key]} label={label} onChange={value=>setDraft({...draft,[key]:value})}/>}
+    </div>)}
+    <button className="button secondary" disabled={disabled||!changed} onClick={()=>void run(()=>applyTaskbarSettings(draft))}>应用任务栏设置</button>
+  </fieldset>;
+}
+export function WallpaperControls({settings,disabled,run}:{settings:DesktopSettings["wallpaper"];disabled:boolean;run:Run}) {
+  const selected=settings.selected;
+  const [minutes,setMinutes]=useState(settings.intervalMinutes);
+  const [volume,setVolume]=useState(settings.volume);
+  return <fieldset className="desktop-settings wallpaper-settings" disabled={disabled}><legend className="sr-only">壁纸设置</legend>
+    <div className="wallpaper-grid" role="group" aria-label="选择壁纸">{settings.items.map(item=><button key={item.id} type="button" aria-pressed={selected===item.id} className={cn("wallpaper-card",selected===item.id&&"selected")} onClick={()=>void run(()=>selectWallpaper(item.id,minutes))}>
+      {item.preview?<img src={item.preview} alt="" loading="lazy"/>:<span className={cn("wallpaper-preview",`wallpaper-${item.scene??"carousel"}`)} aria-hidden="true"/>}<span>{item.title}</span>
+    </button>)}</div>
+    <div className="desktop-control-row">
+      {selected==="builtin:carousel" && <label className="visual-control">切换间隔<select aria-label="切换间隔" value={minutes} onChange={e=>{const next=Number(e.target.value);setMinutes(next);void run(()=>selectWallpaper("builtin:carousel",next));}}>{[1,5,10,15,30].map(n=><option key={n} value={n}>{n} 分钟</option>)}</select></label>}
+
+      <button className="button secondary" onClick={()=>void run(chooseWallpaper)}>导入视频或动图</button>
+      <button className="button secondary" disabled={disabled||!settings.canRestore} onClick={()=>void run(()=>wallpaperControl("restore-settings"))}>恢复上次壁纸</button>
+    </div>
+    <div className="desktop-control-row"><label className="visual-control">壁纸音量<output>{volume}%</output><input aria-label="壁纸音量" type="range" min={0} max={100} value={volume} onChange={e=>setVolume(Number(e.target.value))}/></label><button className="button secondary" disabled={disabled||volume===settings.volume} onClick={()=>void run(()=>setWallpaperVolume(volume))}>应用音量</button>
+      {([ ["pause","暂停"],["play","继续"],["mute","静音"],["stop","停止壁纸"] ] as const).map(([action,label])=><button className="button secondary" key={action} onClick={()=>void run(()=>wallpaperControl(action))}>{label}</button>)}
+    </div>
+  </fieldset>;
+}
+export function ClassicControls({settings,disabled,run}:{settings:ClassicSettings;disabled:boolean;run:Run}) {
+  const [draft,setDraft]=useState(settings);
+  return <div className="classic-settings"><fieldset className="desktop-settings" disabled={disabled}><legend className="sr-only">经典布局设置</legend><div className="desktop-control-row">
+    <label className="visual-control">任务栏布局<select aria-label="任务栏布局" value={draft.taskbar===0?0:2} onChange={e=>setDraft({...draft,taskbar:Number(e.target.value)})}><option value={0}>Windows 11 系统布局</option><option value={2}>经典任务栏</option></select></label>
+    <label className="visual-control">图标对齐<select aria-label="图标对齐" value={draft.alignment} onChange={e=>setDraft({...draft,alignment:Number(e.target.value)})}><option value={0}>靠左</option><option value={1}>居中</option></select></label>
+    <label className="visual-control">任务栏按钮合并<select aria-label="任务栏按钮合并" value={draft.combine} onChange={e=>setDraft({...draft,combine:Number(e.target.value)})}><option value={0}>始终合并</option><option value={1}>任务栏满时合并</option><option value={2}>从不合并</option></select></label>
+    <label className="visual-control">开始菜单布局<select aria-label="开始菜单布局" value={draft.startMenu} onChange={e=>setDraft({...draft,startMenu:Number(e.target.value)})}><option value={0}>Windows 11</option><option value={1}>经典开始菜单</option></select></label>
+    <label className="desktop-check"><input type="checkbox" checked={draft.smallIcons} onChange={e=>setDraft({...draft,smallIcons:e.target.checked})}/>经典任务栏使用小图标</label>
+  </div><p className="control-note">布局修改在注销后生效。经典任务栏与透明任务栏分别控制外观，启用经典任务栏时会关闭 WinGlow 的透明效果。</p>
+    <button className="button secondary" disabled={disabled||JSON.stringify(draft)===JSON.stringify(settings)} onClick={()=>void run(()=>applyClassicSettings(draft))}>应用经典布局设置</button>
+  </fieldset><button className="button secondary" disabled={disabled} onClick={()=>void run(restoreClassicSettings)}>恢复布局设置</button></div>;
+}

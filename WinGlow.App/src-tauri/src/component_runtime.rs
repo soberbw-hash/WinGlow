@@ -16,7 +16,7 @@ use windows::{
             },
             RemoteDesktop::ProcessIdToSessionId,
             Threading::{
-                GetCurrentProcessId, OpenProcess, PROCESS_NAME_WIN32,
+                GetCurrentProcessId, GetExitCodeProcess, OpenProcess, PROCESS_NAME_WIN32,
                 PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
             },
         },
@@ -65,17 +65,27 @@ pub fn processes(name: &str) -> Result<Vec<PathBuf>> {
                 let _process = Guard(process);
                 let mut buf = vec![0u16; 32768];
                 let mut size = buf.len() as u32;
-                unsafe {
+                let queried = unsafe {
                     QueryFullProcessImageNameW(
                         process,
                         PROCESS_NAME_WIN32,
                         PWSTR(buf.as_mut_ptr()),
                         &mut size,
                     )
-                }?;
-                found.push(PathBuf::from(String::from_utf16_lossy(
-                    &buf[..size as usize],
-                )));
+                };
+                if let Err(error) = queried {
+                    // A component can finish between the process snapshot and
+                    // querying its image. An exited handle is not an unknown owner.
+                    let mut exit = 259u32;
+                    unsafe { GetExitCodeProcess(process, &mut exit) }?;
+                    if exit == 259 {
+                        return Err(error.into());
+                    }
+                } else {
+                    found.push(PathBuf::from(String::from_utf16_lossy(
+                        &buf[..size as usize],
+                    )));
+                }
             }
             if unsafe { Process32NextW(snapshot, &mut entry) }.is_err() {
                 break;

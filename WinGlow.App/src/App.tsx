@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTauri } from "@tauri-apps/api/core";
@@ -6,10 +6,11 @@ import { Sparkles, Type, MousePointer2, PanelsTopLeft, RotateCcw, Minus, Square,
 import { MenuManager } from "./components/MenuManager";
 import { AppUpdates } from "./components/AppUpdates";
 import { VisualSettings } from "./components/VisualSettings";
+import { TaskbarControls, WallpaperControls, ClassicControls } from "./components/DesktopSettings";
 import appIcon from "./assets/app-icon.png";
 import { cn } from "./lib/cn";
-import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, optimizeSystem, optimizeMenu, optionalTool, chooseWallpaper, wallpaperControl, refreshMenuDictionary } from "./lib/tauri";
-import type { BootstrapPayload, PageId, ShellState, ActionResult } from "./types";
+import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, optimizeSystem, optimizeMenu, optionalTool, loadDesktopSettings, optimizationUpgradeStatus, retryOptimizationUpgrade, refreshMenuDictionary } from "./lib/tauri";
+import type { BootstrapPayload, PageId, ShellState, ActionResult, DesktopSettings } from "./types";
 
 const pages = [
   { id: "home", label: "一键优化", icon: Sparkles },
@@ -43,34 +44,63 @@ export default function App() {
   const [page, setPage] = useState<PageId>("home");
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
   const [shell, setShell] = useState<ShellState | null>(null);
+  const [desktopSettings, setDesktopSettings] = useState<DesktopSettings | null>(null);
+  const [desktopSettingsError, setDesktopSettingsError] = useState("");
   const [selectedId, setSelectedId] = useState("harmonyos-sc-bold");
   const [busy, setBusy] = useState(false);
+  const [upgrading, setUpgrading] = useState(isTauri());
+  const [upgradeError, setUpgradeError] = useState(false);
+  const reloadSequence = useRef(0);
+  const mutationRunning = useRef(false);
   const [loading, setLoading] = useState(true);
   const [repairing, setRepairing] = useState(false);
   const [repairStage, setRepairStage] = useState("");
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
   const desktop = isTauri();
   async function reload(initial = false) {
+    const sequence = ++reloadSequence.current;
     setLoading(true);
-    const results = await Promise.allSettled([loadBootstrap(), loadShell()]);
+    const results = await Promise.allSettled([loadBootstrap(), loadShell(), loadDesktopSettings()]);
+    if (sequence !== reloadSequence.current) return;
     if (results[0].status === "fulfilled") {
       setBootstrap(results[0].value);
       if (initial && results[0].value.activePresetId) setSelectedId(results[0].value.activePresetId);
     } else setNotice({ text: String(results[0].reason), error: true });
     if (results[1].status === "fulfilled") setShell(results[1].value);
     else setNotice({ text: String(results[1].reason), error: true });
+    if (results[2].status === "fulfilled") { setDesktopSettings(results[2].value); setDesktopSettingsError(""); }
+    else { setDesktopSettings(null); setDesktopSettingsError(String(results[2].reason)); }
     setLoading(false);
   }
   useEffect(() => { void reload(true); }, []);
   useEffect(() => {
-    if (!desktop || !busy) return;
+    if (!desktop) return;
+    let live = true;
+    const poll = async () => {
+      try {
+        const status = await optimizationUpgradeStatus();
+        if (!live) return;
+        setUpgrading(status.running);
+        if (status.finished) {
+          window.clearInterval(timer);
+          setUpgradeError(status.error);
+          if (status.message) { setNotice({text:status.message,error:status.error}); await reload(); }
+        }
+      } catch { if (live) setUpgrading(false); window.clearInterval(timer); }
+    };
+    const timer = window.setInterval(() => void poll(), 1000);
+    void poll();
+    return () => { live = false; window.clearInterval(timer); };
+  }, [desktop]);
+  useEffect(() => {
+    if (!desktop || (!busy && !upgrading)) return;
     let unlisten: (() => void) | undefined;
     let disposed = false;
     void getCurrentWindow().onCloseRequested(event => event.preventDefault()).then(off => {
       if (disposed) off(); else unlisten = off;
     });
     return () => { disposed = true; unlisten?.(); };
-  }, [desktop, busy]);
+  }, [desktop, busy, upgrading]);
   useEffect(() => {
     if (!repairing || !desktop) return;
     let live = true;
@@ -81,13 +111,14 @@ export default function App() {
   const harmonySelected = selectedId === "harmonyos-sc" || selectedId === "harmonyos-sc-bold";
   const familyPresets = bootstrap?.presets.filter(p => p.id !== "harmonyos-sc-bold") ?? [];
   const pendingRecovery = !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending;
-  const blocked = !desktop || busy || loading || pendingRecovery;
+  const blocked = !desktop || busy || upgrading || loading || pendingRecovery;
   async function mutate(operation: () => Promise<ActionResult>) {
-    if (busy) return;
+    if (mutationRunning.current || busy || upgrading) return;
+    mutationRunning.current = true;
     setBusy(true); setNotice(null);
     try { const result = await operation(); if (result.message) setNotice({ text: result.message, error: false }); }
     catch (error) { setNotice({ text: String(error), error: true }); }
-    finally { await reload(); setBusy(false); }
+    finally { await reload(); mutationRunning.current = false; setBusy(false); }
   }
   async function applySelected() {
     if (!selected || busy) return;
@@ -98,25 +129,25 @@ export default function App() {
     try { await mutate(repairSystem); } finally { setRepairing(false); }
   }
   async function windowAction(action: "minimize" | "toggleMaximize" | "close") {
-    if (desktop && !(busy && action === "close")) await getCurrentWindow()[action]();
+    if (desktop && !((busy || upgrading) && action === "close")) await getCurrentWindow()[action]();
   }
   function navigate(next: PageId) { setPage(next); setNotice(null); }
-  const optimizationEffects = shell ? <div className="settings-list">{[{ id: "transparent-taskbar", label: "透明任务栏", note: "柔和模糊背景，保留任务栏细线。", enabled: shell.taskbarEnabled, supported: shell.taskbarSupported }, { id: "window-material", label: "窗口背景", note: "调整支持窗口的标题栏与背景材质。应用的不透明内容区域不会变成磨砂。", enabled: shell.windowMaterialEnabled, supported: shell.windowMaterialSupported }, { id: "start-menu", label: "开始菜单美化", note: "调整开始菜单的磨砂背景、圆角与鸿蒙字体，保留原来的布局。背景浓度越低，越通透。", enabled: shell.startMenuEnabled, supported: shell.startMenuSupported }].map(effect => <section className="effect-section" key={effect.id}><div className="setting-row"><div><h2>{effect.label}</h2><p>{effect.supported ? effect.note : "当前 Windows 版本暂不支持。"}</p></div><Switch label={effect.label} checked={effect.enabled} disabled={blocked || !effect.supported} onChange={value => void mutate(() => setTweak(effect.id, value))} /></div>{effect.supported && (effect.id === "window-material" || effect.id === "start-menu") && <VisualSettings key={effect.id === "window-material" ? shell.appearance.material : `${shell.appearance.tint}-${shell.appearance.radius}`} id={effect.id} settings={shell.appearance} enabled={effect.enabled} disabled={blocked} onApply={settings => void mutate(() => setAppearance(effect.id, settings))} />}</section>)}</div> : null;
+  const optimizationEffects = shell ? <div className="settings-list">{[{ id: "transparent-taskbar", label: "透明任务栏", note: "柔和模糊背景，保留任务栏细线。", enabled: shell.taskbarEnabled, supported: shell.taskbarSupported }, { id: "window-material", label: "窗口背景", note: "调整支持窗口的标题栏与背景材质。应用的不透明内容区域不会变成磨砂。", enabled: shell.windowMaterialEnabled, supported: shell.windowMaterialSupported }, { id: "start-menu", label: "开始菜单美化", note: "调整开始菜单的磨砂背景、圆角与鸿蒙字体，保留原来的布局。背景浓度越低，越通透。", enabled: shell.startMenuEnabled, supported: shell.startMenuSupported }].map(effect => <section className="effect-section" key={effect.id}><div className="setting-row"><div><h2>{effect.label}</h2><p>{effect.supported ? effect.note : "当前 Windows 版本暂不支持。"}</p></div><Switch label={effect.label} checked={effect.enabled} disabled={blocked || !effect.supported} onChange={value => void mutate(() => setTweak(effect.id, value))} /></div>{effect.supported && (effect.id === "window-material" || effect.id === "start-menu") && <VisualSettings key={effect.id === "window-material" ? shell.appearance.material : `${shell.appearance.tint}-${shell.appearance.radius}`} id={effect.id} settings={shell.appearance} enabled={effect.enabled} disabled={blocked} onApply={settings => void mutate(() => setAppearance(effect.id, settings))} />}{effect.id === "transparent-taskbar" && desktopSettings && <TaskbarControls key={JSON.stringify(desktopSettings.taskbar)} settings={desktopSettings.taskbar} disabled={blocked || !effect.supported} run={mutate} />}</section>)}</div> : null;
   return <div className="app-shell">
     <header className="titlebar" data-tauri-drag-region><span className="titlebar-name" data-tauri-drag-region>WinGlow</span><div className="window-controls">
-      <button aria-label="最小化" onClick={() => void windowAction("minimize")}><Minus size={15} /></button><button aria-label="最大化或还原" onClick={() => void windowAction("toggleMaximize")}><Square size={12} /></button><button aria-label="关闭" className="close-window" disabled={busy} onClick={() => void windowAction("close")}><X size={17} /></button>
+      <button aria-label="最小化" onClick={() => void windowAction("minimize")}><Minus size={15} /></button><button aria-label="最大化或还原" onClick={() => void windowAction("toggleMaximize")}><Square size={12} /></button><button aria-label="关闭" className="close-window" disabled={busy || upgrading} onClick={() => void windowAction("close")}><X size={17} /></button>
     </div></header>
     <div className="workspace"><aside className="sidebar"><div className="brand"><img src={appIcon} alt="" width={40} height={40} /><span>WinGlow</span></div>
       <nav aria-label="功能">{pages.map(({ id, label, icon: Icon }) => <button key={id} className={cn("nav-item", page === id && "active")} aria-current={page === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={18} /><span>{label}</span></button>)}</nav>
       <div className="sidebar-bottom"><button className={cn("nav-item", page === "settings" && "active")} aria-current={page === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><RotateCcw size={18} /><span>设置与还原</span></button></div>
     </aside><main className={cn("main-content", page === "menu" && "menu-page", page === "home" && "home-main")} aria-busy={loading || busy}>
       {page === "home" ? <section className="home-page" aria-label="一键优化">
-        <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观</h1><p>鸿蒙字体、右键美化与精简、隐藏角标、柔和的桌面效果。</p></div>
+        <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观</h1><p>舒适的字体、清爽的菜单、柔和的桌面与动态壁纸</p></div>
         {!shell && !loading && <button className="button secondary" onClick={() => void reload()}>重新读取</button>}
-        <div className="home-actions"><button className="button primary optimize-button" disabled={blocked || !shell || shell.optimizationActive} title="首次使用需联网准备 Breeze。完成后自动刷新资源管理器，文件窗口可能关闭。" onClick={() => void mutate(() => optimizeSystem())}><Sparkles size={20} />{busy ? "正在处理…" : shell?.optimizationActive && !shell.optimizationPending ? "已优化" : "一键优化"}</button>
-          {shell?.optimizationActive && !shell.optimizationPending && <button className="button secondary home-restore" disabled={!desktop || busy || loading} onClick={() => void mutate(() => optimizeSystem(true))}><RotateCcw size={20} />撤销优化</button>}
+        <div className="home-actions"><button className="button primary optimize-button" disabled={blocked || !shell || shell.optimizationActive} title="首次使用需联网准备美化组件和动态壁纸。完成后自动刷新资源管理器，文件窗口可能关闭。" onClick={() => void mutate(() => optimizeSystem())}><Sparkles size={20} />{busy ? "正在处理…" : shell?.optimizationActive && !shell.optimizationPending ? "已优化" : "一键优化"}</button>
+          {shell?.optimizationActive && !shell.optimizationPending && <button className="button secondary home-restore" disabled={!desktop || busy || loading || upgrading} onClick={() => void mutate(() => optimizeSystem(true))}><RotateCcw size={20} />撤销优化</button>}
         </div>
-        {shell && <details className="home-settings"><summary>任务栏、窗口与开始菜单设置</summary>{optimizationEffects}</details>}
+
         {shell && !shell.taskbarSupported && <p className="home-support">透明任务栏需要 Windows 11。</p>}
       </section> : page === "fonts" ? <><h1>字体</h1>
         {loading && !bootstrap ? <div className="empty-state"><p>正在读取…</p></div> : !bootstrap ? <div className="empty-state"><button className="button secondary" onClick={() => void reload(true)}>重试</button></div> : <>
@@ -132,36 +163,37 @@ export default function App() {
           {!shell && loading ? <p className="empty-state">正在读取…</p> : !shell ? <button className="button secondary" onClick={() => void reload()}>重试</button> : <MenuManager items={shell.items} disabled={blocked} loading={busy || loading} onRefresh={() => void reload()} onToggle={(id, enabled) => void mutate(() => setMenuItem(id, enabled))} />}
         </> : page === "details" ? <><h1>基础美化</h1>{!shell ? <div className="empty-state"><button className="button secondary" disabled={loading} onClick={() => void reload()}>重试</button></div> : <>
           {optimizationEffects}
+          {desktopSettingsError && <div className="notice error" role="alert">桌面设置读取失败：{desktopSettingsError}<button className="button secondary" disabled={blocked} onClick={()=>void reload()}>重新读取</button></div>}
           <div className="settings-list">
             {shell.tweaks.map(tweak => <div className="setting-row" key={tweak.id}><div><h2>{tweak.label}</h2>{tweak.note && <p>{tweak.note}</p>}</div><Switch label={tweak.label} checked={tweak.enabled} disabled={blocked} onChange={value => void mutate(() => setTweak(tweak.id, value))} /></div>)}
           </div>
-          <section className="optional-section" aria-labelledby="optional-heading"><h2 id="optional-heading">可选功能</h2>
+          <section className="optional-section" aria-labelledby="optional-heading"><h2 id="optional-heading">桌面与布局</h2>
             {shell.optionalTools.map(tool => <div className="setting-row optional-row" key={tool.id}>
               <div><h3>{tool.label}</h3><p>{tool.note}</p></div>
               <div className="optional-actions">
-                <button className="button secondary" disabled={blocked || (!tool.installed && !tool.supported)} onClick={() => void mutate(() => optionalTool(tool.id, tool.installed ? "open" : "install"))}>{tool.installed ? (tool.id === "lively" ? "壁纸库" : "经典布局设置") : "安装"}</button>
+                {!tool.installed && <button className="button secondary" disabled={blocked || !tool.supported} onClick={() => void mutate(() => optionalTool(tool.id, "install"))}>安装</button>}
                 {tool.installed && tool.id === "explorer-patcher" && <button className="button secondary" disabled={blocked} onClick={() => void mutate(() => optionalTool(tool.id, "system-taskbar"))}>恢复系统任务栏</button>}
                 {tool.managed && <RestoreButton label="还原" description={`卸载 WinGlow 安装的${tool.label}，恢复启用前的配置。`} disabled={blocked} onRestore={() => void mutate(() => optionalTool(tool.id, "remove"))} />}
               </div>
-              {tool.installed && tool.id === "lively" && <div className="wallpaper-controls">
-                <button className="button secondary" disabled={blocked} onClick={() => void mutate(chooseWallpaper)}>选择视频或动图</button>
-                {([ ["pause", "暂停"], ["play", "继续"], ["mute", "静音"], ["stop", "停止壁纸"] ] as const).map(([action, label]) => <button className="button secondary" key={action} disabled={blocked} onClick={() => void mutate(() => wallpaperControl(action))}>{label}</button>)}
-              </div>}
+              {tool.installed && tool.id === "lively" && desktopSettings && <WallpaperControls key={`${desktopSettings.wallpaper.selected}-${desktopSettings.wallpaper.intervalMinutes}-${desktopSettings.wallpaper.volume}-${desktopSettings.wallpaper.canRestore}-${desktopSettings.wallpaper.items.length}`} settings={desktopSettings.wallpaper} disabled={blocked} run={mutate}/>}
+              {tool.installed && tool.id === "explorer-patcher" && desktopSettings && <ClassicControls key={JSON.stringify(desktopSettings.classic)} settings={desktopSettings.classic} disabled={blocked || !tool.supported} run={mutate}/>}
             </div>)}
           </section>
         </>}</> : <>
           <h1>还原</h1><div className="restore-actions">
-            <RestoreButton label="恢复默认字体" description="恢复默认字体映射和原来的显示参数，修改前自动备份。成功后重启资源管理器，请先完成文件复制。" disabled={!desktop || busy || loading} onRestore={() => void mutate(() => restoreFonts("default"))} />
-            <RestoreButton label="还原右键菜单" description="还原本工具修改的菜单项与 Breeze 自启设置。关闭 Breeze 后需要注销。" disabled={!desktop || busy || loading} onRestore={() => void mutate(() => restoreCategory("menu"))} />
-            <RestoreButton label="还原基础美化" description="恢复本工具修改前的基础美化设置。" disabled={!desktop || busy || loading} onRestore={() => void mutate(() => restoreCategory("details"))} />
-            <RestoreButton label="撤销最近修改" description="回到最近一次操作前。成功后重启资源管理器，请先完成文件复制。" disabled={!desktop || busy || loading} onRestore={() => void mutate(() => restoreCategory("all-last"))} />
-          </div><div className="repair-section"><h2>普通还原无效？</h2><p>扫描并修复 Windows 系统文件，再恢复默认字体。可能需要联网和重启。</p><RestoreButton label="扫描并修复" description="将运行 Windows 系统修复，可能需要较长时间。期间不要关闭程序，结束后请注销或重启。" disabled={!desktop || busy || loading} primary onRestore={() => void scanRepair()} /></div>
+            <RestoreButton label="恢复默认字体" description="恢复默认字体映射和原来的显示参数，修改前自动备份。成功后重启资源管理器，请先完成文件复制。" disabled={!desktop || busy || loading || upgrading} onRestore={() => void mutate(() => restoreFonts("default"))} />
+            <RestoreButton label="还原右键菜单" description="还原本工具修改的菜单项与 Breeze 自启设置。关闭 Breeze 后需要注销。" disabled={!desktop || busy || loading || upgrading} onRestore={() => void mutate(() => restoreCategory("menu"))} />
+            <RestoreButton label="还原基础美化" description="恢复本工具修改前的基础美化设置。" disabled={!desktop || busy || loading || upgrading} onRestore={() => void mutate(() => restoreCategory("details"))} />
+            <RestoreButton label="撤销最近修改" description="回到最近一次操作前。成功后重启资源管理器，请先完成文件复制。" disabled={!desktop || busy || loading || upgrading} onRestore={() => void mutate(() => restoreCategory("all-last"))} />
+          </div><div className="repair-section"><h2>普通还原无效？</h2><p>扫描并修复 Windows 系统文件，再恢复默认字体。可能需要联网和重启。</p><RestoreButton label="扫描并修复" description="将运行 Windows 系统修复，可能需要较长时间。期间不要关闭程序，结束后请注销或重启。" disabled={!desktop || busy || loading || upgrading} primary onRestore={() => void scanRepair()} /></div>
           <button className="text-button" disabled={!desktop || !bootstrap} onClick={() => { if (bootstrap) void openBackup().catch(error => setNotice({ text: String(error), error: true })); }}>打开备份</button>
           <div className="dictionary-settings"><span>菜单识别库</span><button className="button secondary" disabled={blocked} onClick={() => void mutate(refreshMenuDictionary)}>检查更新</button></div>
+          {upgradeError && <div className="notice" role="status"><p>上次自动应用优化方案未完成，已暂停自动重试。</p><button className="button secondary" disabled={blocked} onClick={() => void mutate(async () => { const result = await retryOptimizationUpgrade(); setUpgradeError(false); return result; })}>重试优化方案更新</button></div>}
         </>}
-      {pendingRecovery && <div className="notice error" role="alert"><p>{bootstrap?.pendingRecovery || "上次修改没有完成，请先还原。"}</p><button className="button secondary" disabled={busy || loading || !desktop} onClick={() => void mutate(recoverPending)}>{busy ? "正在恢复…" : "恢复未完成修改"}</button></div>}
-      <AppUpdates settings={page === "settings"} blocked={busy || repairing || !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending} />
+      {pendingRecovery && <div className="notice error" role="alert"><p>{bootstrap?.pendingRecovery || "上次修改没有完成，请先还原。"}</p><button className="button secondary" disabled={busy || loading || upgrading || !desktop} onClick={() => void mutate(recoverPending)}>{busy ? "正在恢复…" : "恢复未完成修改"}</button></div>}
+      <AppUpdates settings={page === "settings"} blocked={busy || upgrading || repairing || !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending} />
       {repairing && <div className="notice" role="status">{repairStage}</div>}
+      {upgrading && <div className="notice" role="status">正在检查并更新优化方案…</div>}
       {notice && <div className={cn("notice", notice.error && "error")} role={notice.error ? "alert" : "status"}>{notice.text}</div>}
     </main></div>
   </div>;

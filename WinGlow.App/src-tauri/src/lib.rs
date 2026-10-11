@@ -4,6 +4,7 @@ mod breeze;
 mod component_runtime;
 mod desktop;
 mod desktop_access;
+mod desktop_settings;
 mod explorer;
 mod font_engine;
 mod legacy;
@@ -110,16 +111,21 @@ async fn recover_pending() -> Result<ActionResult, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let mut restored = None;
         if optimization::state()?.1 {
-            restored = Some(optimization::restore()?);
+            restored = Some(optimization::restore_deferred()?);
         }
         if !transaction::pending_directories(&font_engine::backup_root()?)?.is_empty() {
-            restored = Some(worker::run(Operation::RestoreCategory {
+            restored = Some(worker::run_deferred(Operation::RestoreCategory {
                 category: "pending".into(),
             })?);
         }
-        Ok::<_, anyhow::Error>(restored.unwrap_or(ActionResult {
-            message: "没有未完成的修改，状态已重新检查。".into(),
-        }))
+        let refresh = restored.is_some();
+        explorer::finish(
+            Ok(restored.unwrap_or(ActionResult {
+                message: "没有未完成的修改，状态已重新检查。".into(),
+            })),
+            refresh,
+            explorer::restart,
+        )
     })
     .await
     .map_err(|error| error.to_string())?
@@ -194,6 +200,12 @@ pub fn run() {
             explorer::watch_shell();
             std::thread::spawn(menu_dictionary::update_if_due);
             std::thread::spawn(|| {
+                let upgrade = optimization::update_on_startup();
+                optimization::finish_upgrade(&upgrade);
+                if let Err(error) = upgrade {
+                    eprintln!("升级后的优化方案尚未更新：{error:#}");
+                    return;
+                }
                 let result = (|| -> anyhow::Result<()> {
                     let _guard = worker::optimization_lock()?;
                     shell_engine::ensure_ready()?;
@@ -240,7 +252,15 @@ pub fn run() {
             install_update,
             optional_tool,
             wallpaper_control,
+            load_desktop_settings,
+            apply_taskbar_settings,
+            apply_classic_settings,
+            restore_classic_settings,
+            select_wallpaper,
+            set_wallpaper_volume,
             choose_wallpaper,
+            optimization_upgrade_status,
+            retry_optimization_upgrade,
             refresh_menu_dictionary
         ])
         .run(tauri::generate_context!())
@@ -276,6 +296,89 @@ async fn wallpaper_control(action: String) -> Result<ActionResult, String> {
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("{e:#}"))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesktopSettings {
+    taskbar: desktop_settings::TaskbarSettings,
+    classic: desktop_settings::ClassicSettings,
+    wallpaper: optional_tools::WallpaperLibrary,
+}
+#[tauri::command]
+async fn load_desktop_settings() -> Result<DesktopSettings, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        Ok::<_, anyhow::Error>(DesktopSettings {
+            taskbar: desktop_settings::taskbar_settings()?,
+            classic: desktop_settings::classic_settings()?,
+            wallpaper: optional_tools::wallpaper_library()?,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn apply_taskbar_settings(
+    settings: desktop_settings::TaskbarSettings,
+) -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        worker::run(Operation::TaskbarSettings { settings })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn apply_classic_settings(
+    settings: desktop_settings::ClassicSettings,
+) -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        worker::run(Operation::ClassicSettings { settings })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn restore_classic_settings() -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || worker::run(Operation::RestoreClassic))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn select_wallpaper(id: String, minutes: u32) -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || optional_tools::select_wallpaper(id, minutes))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn set_wallpaper_volume(volume: u8) -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || optional_tools::set_wallpaper_volume(volume))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+fn optimization_upgrade_status() -> optimization::UpgradeStatus {
+    optimization::upgrade_status()
+}
+#[tauri::command]
+async fn retry_optimization_upgrade() -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let result = optimization::update_if_due();
+        optimization::finish_upgrade(&result);
+        result.map(|result| {
+            result.unwrap_or(ActionResult {
+                message: "当前优化方案已是最新。".into(),
+            })
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]

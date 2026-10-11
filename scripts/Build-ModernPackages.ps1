@@ -1,4 +1,4 @@
-﻿param([switch]$SkipChecks, [string]$SigningKeyPath)
+param([switch]$SkipChecks, [string]$SigningKeyPath)
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $appRoot = Join-Path $repoRoot 'WinGlow.App'
@@ -65,6 +65,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $repoRoot 'FontPackages\pingfang-sc\SOURCE.txt') -Destination (Join-Path $licenses 'PingFang-SOURCE.txt') -Force
     $branding = Join-Path $portable 'branding'
     New-Item -ItemType Directory -Path $branding -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $appRoot 'src-tauri\icons\icon.ico') -Destination (Join-Path $branding 'WinGlow-desktop.ico') -Force
     foreach ($name in @('icon-master.png','brand-source.json','README.md')) {
         Copy-Item -LiteralPath (Join-Path $repoRoot "docs\branding\$name") -Destination $branding -Force
     }

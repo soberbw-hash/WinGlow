@@ -38,7 +38,7 @@ export function AppUpdates({ settings, blocked }: { settings: boolean; blocked: 
   const active = state.phase === "checking" || state.phase === "downloading" || state.phase === "installing";
   const status = state.phase === "checking" ? "正在检查更新…" : state.phase === "downloading" ? `正在后台下载${state.total ? ` ${Math.min(100, Math.floor(state.downloaded / state.total * 100))}%` : "…"}` : state.phase === "ready" ? `新版本 ${state.version} 已下载` : state.phase === "current" ? "已是最新版本" : state.phase === "error" ? "检查或下载失败，请重试" : "启动时自动检查更新";
   return <>
-    {settings && <section className="update-settings" aria-label="软件更新"><div><h2>软件更新</h2><p>当前版本 {state.currentVersion}</p><p role="status">{status}</p></div><button className="button secondary" disabled={!desktop || active || installing || blocked} onClick={() => void check()}>{state.phase === "ready" ? "安装更新" : "检查更新"}</button></section>}
+    {settings && <section className="update-settings" aria-label="软件更新"><div><h2>软件更新</h2><p>当前版本 {state.currentVersion}</p><p role="status">{status}</p></div><button className="button secondary" disabled={!desktop || active || installing || blocked} onClick={() => state.phase === "ready" ? setOpen(true) : void check()}>{state.phase === "ready" ? "安装更新" : "检查更新"}</button></section>}
     <AlertDialog.Root open={open} onOpenChange={value => { if (!installing) { setOpen(value); if (!value) setDismissed(state.version); } }}>
       <AlertDialog.Portal><AlertDialog.Overlay className="dialog-overlay" /><AlertDialog.Content className="dialog-content">
         <AlertDialog.Title className="dialog-title">新版本已准备好</AlertDialog.Title>

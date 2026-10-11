@@ -127,6 +127,9 @@ pub fn plan() -> Result<Vec<Entry>> {
     ])
 }
 pub fn prepare() -> Result<()> {
+    if crate::desktop_settings::classic_settings()?.taskbar != 0 {
+        bail!("经典任务栏正在启用，请先恢复系统任务栏，再启用透明效果。");
+    }
     if !supported() {
         bail!("透明任务栏目前支持 Windows 11。");
     }

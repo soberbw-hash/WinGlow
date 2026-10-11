@@ -16,7 +16,7 @@ use windows::{
         },
         System::{
             RemoteDesktop::ProcessIdToSessionId,
-            SystemInformation::GetWindowsDirectoryW,
+            SystemInformation::{GetTickCount64, GetWindowsDirectoryW},
             Threading::{
                 CREATE_PROCESS_LOGON_FLAGS, CREATE_SUSPENDED, CreateProcessW,
                 CreateProcessWithTokenW, GetCurrentProcessId, OpenProcess, OpenProcessToken,
@@ -55,6 +55,9 @@ pub fn finish(
     if refresh {
         match restart() {
             Ok(()) => result.message.push_str(" 资源管理器已刷新。"),
+            Err(error) if error.is::<RefreshDeferred>() => result.message.push_str(
+                " 设置已保存；桌面刚刚刷新过，本次不重复重启，剩余效果在下次登录后生效。",
+            ),
             Err(error) => result.message.push_str(&format!(
                 " 自动刷新未完成：{error:#}。可在任务管理器中重新启动 Windows 资源管理器。"
             )),
@@ -253,6 +256,27 @@ fn restart_shell() -> Result<()> {
 
 static OBSERVED_SHELL: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+#[derive(Debug)]
+struct RefreshDeferred;
+impl std::fmt::Display for RefreshDeferred {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("桌面刚刚刷新过，已延后重复重启")
+    }
+}
+impl std::error::Error for RefreshDeferred {}
+
+fn refresh_due(last: Option<u64>, now: u64) -> bool {
+    last.and_then(|last| now.checked_sub(last))
+        .is_none_or(|elapsed| elapsed >= 30_000)
+}
+fn refresh_stamp() -> Result<PathBuf> {
+    Ok(crate::font_engine::data_root()?.join("explorer-refresh-tick.txt"))
+}
+fn record_refresh() -> Result<()> {
+    std::fs::write(refresh_stamp()?, unsafe { GetTickCount64() }.to_string())?;
+    Ok(())
+}
+
 #[derive(Default)]
 struct StableTaskbar {
     candidate: Option<(u32, isize)>,
@@ -332,6 +356,7 @@ fn recover_effects() -> Result<()> {
 pub(crate) fn external_refresh(
     operation: impl FnOnce() -> Result<ActionResult>,
 ) -> Result<ActionResult> {
+    let before_pid = shell_pid();
     let wallpaper = crate::optional_tools::WallpaperRefresh::capture()?;
     crate::taskbar::preflight()?;
     let taskbar_running = crate::taskbar::running()?;
@@ -345,6 +370,9 @@ pub(crate) fn external_refresh(
         crate::breeze::pause_owned()?;
         operation()
     })();
+    if shell_pid() != before_pid {
+        let _ = record_refresh();
+    }
     let recovery = finish_runtime(
         wait_for_taskbar().and_then(|()| {
             let taskbar = if taskbar_running {
@@ -383,6 +411,15 @@ pub(crate) fn external_refresh(
     }
 }
 pub fn restart() -> Result<()> {
+    let now = unsafe { GetTickCount64() };
+    let last = std::fs::read_to_string(refresh_stamp()?)
+        .ok()
+        .and_then(|s| s.trim().parse().ok());
+    if !refresh_due(last, now) {
+        crate::font_engine::notify();
+        crate::shell_engine::notify();
+        return Err(RefreshDeferred.into());
+    }
     let wallpaper = crate::optional_tools::WallpaperRefresh::capture()?;
     let result = protected_refresh(
         || {
@@ -390,7 +427,11 @@ pub fn restart() -> Result<()> {
             crate::taskbar::pause_owned()?;
             crate::breeze::pause_owned()
         },
-        restart_shell,
+        || {
+            // Reserve the refresh before stopping the shell, including failed recovery.
+            record_refresh()?;
+            restart_shell()
+        },
         || {
             finish_runtime(
                 wait_for_taskbar().and_then(|()| recover_effects()),
@@ -468,6 +509,24 @@ pub fn watch_shell() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rapid_refresh_is_deferred_without_reporting_a_failed_write() {
+        assert!(refresh_due(None, 1));
+        assert!(!refresh_due(Some(1000), 30999));
+        assert!(refresh_due(Some(1000), 31000));
+        assert!(refresh_due(Some(1000), 1)); // new boot
+        let result = finish(
+            Ok(ActionResult {
+                message: "已应用。".into(),
+            }),
+            true,
+            || Err(RefreshDeferred.into()),
+        )
+        .unwrap();
+        assert!(result.message.contains("不重复重启"));
+        assert!(!result.message.contains("任务管理器"));
+    }
 
     #[test]
     fn refresh_stops_runtime_before_shell_and_always_recovers() {
