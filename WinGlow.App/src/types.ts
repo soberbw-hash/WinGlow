@@ -18,12 +18,11 @@ export interface MenuItem {
   rawLabel: string; autoHide: boolean; targets: string[]; menuLevel: "direct" | "cascade" | "extension";
   children: string[]; subItems: MenuItem[]; visibilityNote: string | null; iconDataUrl: string | null; iconSource: string | null;
 }
-export interface OptionalToolState { id: string; label: string; installed: boolean; managed: boolean; supported: boolean; note: string; }
+export interface OptionalToolState { id: string; label: string; installed: boolean; enabled: boolean; managed: boolean; supported: boolean; note: string; }
 export interface Appearance { material: number; tint: number; radius: number; }
 export interface TaskbarLook { accent:string; color:string; opacity:number; showLine:boolean; }
 export interface TaskbarSettings { desktop:TaskbarLook; maximized:TaskbarLook|null; startOpen:TaskbarLook|null; }
-export interface ClassicSettings { taskbar:number; alignment:number; combine:number; smallIcons:boolean; startMenu:number; }
 export interface WallpaperCard { id:string; title:string; preview:string|null; scene:string|null; }
-export interface DesktopSettings { taskbar:TaskbarSettings; classic:ClassicSettings; wallpaper:{items:WallpaperCard[];selected:string|null;intervalMinutes:number;volume:number;canRestore:boolean}; }
+export interface DesktopSettings { taskbar:TaskbarSettings;  wallpaper:{items:WallpaperCard[];selected:string|null;intervalMinutes:number;volume:number;canRestore:boolean}; }
 export interface ShellState { items: MenuItem[]; tweaks: ToggleState[]; breezeEnabled: boolean; taskbarEnabled: boolean; taskbarSupported: boolean; startMenuEnabled: boolean; startMenuSupported: boolean; windowMaterialEnabled: boolean; windowMaterialSupported: boolean; appearance: Appearance; optionalTools: OptionalToolState[]; optimizationActive: boolean; optimizationPending: boolean; pendingRecovery: boolean; }
 export interface RepairProgress { running: boolean; stage: string; logDir: string; }

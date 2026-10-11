@@ -11,6 +11,8 @@ async (page) => {
       metadata: { currentWindow: { label: 'main' } },
       transformCallback: () => 1, unregisterCallback() {},
       invoke: async command => {
+        if (command === 'optimization_upgrade_status') return { running: false, finished: true, message: '', error: false };
+        if (command === 'load_desktop_settings') return {taskbar:{desktop:{accent:'blur',color:'#000000',opacity:0,showLine:true},maximized:null,startOpen:null},classic:{taskbar:0,alignment:1,combine:0,smallIcons:false,startMenu:0},wallpaper:{items:[],selected:'',intervalMinutes:5,volume:0,canRestore:false}};
         if (command === 'load_bootstrap') return { presets: [], activePresetId: null, activeFontLabel: 'Windows 默认', currentPreviewFamily: 'sans-serif', currentPreviewWeight: 400, needsFontRefresh: false, backupDir: '', canRestore: false, pendingRecovery: state.pending && !state.optimization ? '上次修改没有完成，请先还原。' : null };
         if (command === 'load_shell') return { items: [], tweaks: [], optionalTools: [], appearance: { material: 3, tint: 78, radius: 16 }, taskbarSupported: true, startMenuSupported: true, windowMaterialSupported: true, optimizationActive: state.optimization, optimizationPending: state.pending && state.optimization, pendingRecovery: state.pending && !state.optimization };
         if (command === 'update_status') return { currentVersion: '1.1.3', phase: 'idle', version: null, downloaded: 0, total: null, error: null };
@@ -60,5 +62,5 @@ async (page) => {
     results.push({ location, mode, optimization, passed: true });
   }
   if (errors.length) throw Error(errors.join('\n'));
-  console.log(JSON.stringify({ results, errors }));
+  return { results, errors };
 }

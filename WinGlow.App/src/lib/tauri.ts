@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { ActionResult, BootstrapPayload, ShellState, RepairProgress, Appearance, DesktopSettings, TaskbarSettings, ClassicSettings } from "../types";
+import type { ActionResult, BootstrapPayload, ShellState, RepairProgress, Appearance, DesktopSettings, TaskbarSettings } from "../types";
 // Browser previews cannot write Windows settings or report a simulated success.
 export async function loadBootstrap(): Promise<BootstrapPayload> {
   if (isTauri()) return invoke("load_bootstrap");
@@ -23,8 +23,7 @@ export const importFonts = (paths: string[]) => invoke<ActionResult>("import_fon
 export async function loadShell(): Promise<ShellState> {
   if (isTauri()) return invoke("load_shell");
   return { items: [], breezeEnabled: false, taskbarEnabled: false, taskbarSupported: true, startMenuEnabled: false, startMenuSupported: true, windowMaterialEnabled: false, windowMaterialSupported: true, appearance: { material: 3, tint: 20, radius: 10 }, optionalTools: [
-    { id: "lively", label: "动态壁纸", installed: false, managed: false, supported: true, note: "选择动态壁纸；默认静音，全屏和电池模式暂停。" },
-    { id: "explorer-patcher", label: "经典布局", installed: false, managed: false, supported: true, note: "ExplorerPatcher：可调整任务栏和开始菜单；不会随一键优化安装。" },
+    { id: "lively", label: "动态壁纸", installed: false, enabled: false, managed: false, supported: true, note: "选择动态壁纸；默认静音，全屏和电池模式暂停。" },
   ], optimizationActive: false, optimizationPending: false, pendingRecovery: false, tweaks: [
     { id: "shortcut-arrow", label: "隐藏快捷方式箭头", enabled: false, note: null },
     { id: "shield-overlay", label: "隐藏盾牌角标", enabled: false, note: "实验功能，部分 Windows 版本可能不生效。" },
@@ -40,7 +39,7 @@ export const repairProgress = () => invoke<RepairProgress>("repair_progress");
 export const optimizeSystem = (restore = false) => invoke<ActionResult>("optimize_system", { restore });
 export const optimizeMenu = () => invoke<ActionResult>("optimize_menu");
 export const openBackup = () => invoke<void>("open_backup");
-export const optionalTool = (id: string, action: "install" | "open" | "remove" | "system-taskbar") => invoke<ActionResult>("optional_tool", { id, action });
+export const optionalTool = (id: string, action: "install" | "open" | "remove" | "enable" | "disable" | "system-taskbar") => invoke<ActionResult>("optional_tool", { id, action });
 export const refreshMenuDictionary = () => invoke<ActionResult>("refresh_menu_dictionary");
 
 export const chooseWallpaper = () => invoke<ActionResult>("choose_wallpaper");
@@ -49,10 +48,8 @@ export const retryOptimizationUpgrade = () => invoke<ActionResult>("retry_optimi
 export const wallpaperControl = (action: "pause" | "play" | "mute" | "stop" | "restore-settings") => invoke<ActionResult>("wallpaper_control", { action });
 export async function loadDesktopSettings():Promise<DesktopSettings> {
   if(isTauri()) return invoke("load_desktop_settings");
-  return {taskbar:{desktop:{accent:"blur",color:"#000000",opacity:0,showLine:true},maximized:null,startOpen:null},classic:{taskbar:0,alignment:1,combine:0,smallIcons:false,startMenu:0},wallpaper:{items:[{id:"builtin:carousel",title:"自动轮播",preview:null,scene:null},{id:"builtin:night",title:"夜色",preview:null,scene:"night"},{id:"builtin:sea",title:"海色",preview:null,scene:"sea"},{id:"builtin:dawn",title:"晨光",preview:null,scene:"dawn"}],selected:null,intervalMinutes:5,volume:0,canRestore:false}};
+  return {taskbar:{desktop:{accent:"blur",color:"#000000",opacity:0,showLine:true},maximized:null,startOpen:null},wallpaper:{items:[{id:"builtin:carousel",title:"自动轮播",preview:null,scene:null},{id:"builtin:night",title:"夜色",preview:null,scene:"night"},{id:"builtin:sea",title:"海色",preview:null,scene:"sea"},{id:"builtin:dawn",title:"晨光",preview:null,scene:"dawn"}],selected:null,intervalMinutes:5,volume:0,canRestore:false}};
 }
 export const applyTaskbarSettings = (settings:TaskbarSettings)=>invoke<ActionResult>("apply_taskbar_settings",{settings});
-export const applyClassicSettings = (settings:ClassicSettings)=>invoke<ActionResult>("apply_classic_settings",{settings});
-export const restoreClassicSettings = ()=>invoke<ActionResult>("restore_classic_settings");
 export const selectWallpaper = (id:string,minutes:number)=>invoke<ActionResult>("select_wallpaper",{id,minutes});
 export const setWallpaperVolume = (volume:number)=>invoke<ActionResult>("set_wallpaper_volume",{volume});

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
@@ -10,11 +10,20 @@ export function AppUpdates({ settings, blocked }: { settings: boolean; blocked: 
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const polling = useRef(false);
+  const statusRequest = useRef(0);
   const desktop = isTauri();
   useEffect(() => {
     if (!desktop) return;
     let live = true;
-    const poll = () => { void invoke<UpdateState>("update_status").then(value => { if (live) setState(value); }).catch(() => {}); };
+    const poll = async () => {
+      if (!live || polling.current) return;
+      polling.current = true;
+      const request = ++statusRequest.current;
+      try { const value = await invoke<UpdateState>("update_status"); if (live && request === statusRequest.current) setState(value); }
+      catch { /* Keep the last known state and retry. */ }
+      finally { polling.current = false; }
+    };
     poll();
     const timer = window.setInterval(poll, 1500);
     return () => { live = false; window.clearInterval(timer); };
@@ -24,11 +33,14 @@ export function AppUpdates({ settings, blocked }: { settings: boolean; blocked: 
   }, [state.phase, state.version, dismissed, blocked]);
   async function check() {
     setError(null);
+    const request = ++statusRequest.current;
     try {
       const next = await invoke<UpdateState>("check_updates");
-      setState(next);
-      if (next.phase === "ready") setOpen(true);
-    } catch { setError("检查更新失败，请稍后重试。"); }
+      if (request === statusRequest.current) {
+        setState(next);
+        if (next.phase === "ready") setOpen(true);
+      }
+    } catch { if (request === statusRequest.current) setError("检查更新失败，请稍后重试。"); }
   }
   async function install() {
     setInstalling(true); setError(null);

@@ -31,3 +31,5 @@ https://github.com/lively-community/lively/tree/v2.2.1.0
 https://github.com/valinet/ExplorerPatcher/tree/26100.8457.70.3
 
 Rainmeter、Open-Shell 和 DWMBlurGlass 未集成。窗口磨砂使用 Windows 官方 DWM 材质接口。
+
+Lively 引擎按用户选择下载；许可证：Lively-GPL-3.0.txt。WinGlow 通过当前用户的本地命名管道发送控制请求并等待确认，不内附 Livelycu。

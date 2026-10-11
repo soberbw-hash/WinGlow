@@ -4,14 +4,17 @@ use crate::{component_runtime as runtime, font_engine, models::ActionResult, tra
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::os::windows::ffi::OsStrExt;
 use std::{
     fs,
     io::Read,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
-use winreg::{RegKey, RegValue, enums::*};
+use winreg::{RegKey, enums::*};
+mod carousel;
+pub fn carousel_host() -> Result<()> {
+    carousel::host()
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +22,7 @@ pub struct ToolState {
     pub id: String,
     pub label: String,
     pub installed: bool,
+    pub enabled: bool,
     pub managed: bool,
     pub supported: bool,
     pub note: String,
@@ -39,19 +43,11 @@ const LIVELY: Tool = Tool {
     hash: "98f4e96bb8e2c416384eeaf48016eadaea9dce8263b8d212052775ebcf2d7e34",
     size: 218063717,
 };
-const EP: Tool = Tool {
-    id: "explorer-patcher",
-    label: "经典布局",
-    version: "26100.8457.70.3",
-    url: "https://github.com/valinet/ExplorerPatcher/releases/download/26100.8457.70.3/ep_setup.exe",
-    hash: "8146db4d3a87201fb80ad1d3712ba8f56883e9a0811758bd39f62d73a9f2c586",
-    size: 12237312,
-};
 fn tool(id: &str) -> Result<&'static Tool> {
-    match id {
-        "lively" => Ok(&LIVELY),
-        "explorer-patcher" => Ok(&EP),
-        _ => bail!("未知可选工具。"),
+    if id == "lively" {
+        Ok(&LIVELY)
+    } else {
+        bail!("未知可选工具。")
     }
 }
 fn root(t: &Tool) -> Result<PathBuf> {
@@ -63,21 +59,9 @@ fn root(t: &Tool) -> Result<PathBuf> {
 fn marker(t: &Tool) -> Result<PathBuf> {
     Ok(root(t)?.join("installation.json"))
 }
-fn program_files() -> Result<PathBuf> {
-    use windows::Win32::UI::Shell::{FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, SHGetKnownFolderPath};
-    let value = unsafe { SHGetKnownFolderPath(&FOLDERID_ProgramFiles, KF_FLAG_DEFAULT, None) }?;
-    let path = unsafe { value.to_string() }?;
-    unsafe {
-        windows::Win32::System::Com::CoTaskMemFree(Some(value.0 as *const _));
-    }
-    Ok(PathBuf::from(path))
-}
+
 fn own_exe(t: &Tool) -> Result<PathBuf> {
-    Ok(if t.id == "lively" {
-        root(t)?.join("Application/Lively.exe")
-    } else {
-        program_files()?.join("ExplorerPatcher/ep_gui.dll")
-    })
+    Ok(root(t)?.join("Application/Lively.exe"))
 }
 fn lively_existing() -> Option<PathBuf> {
     let key = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{E3E43E1B-DEC8-44BF-84A6-243DBA3F2CB1}_is1";
@@ -100,6 +84,9 @@ pub struct WallpaperRefresh {
 }
 fn resume_marker() -> Result<PathBuf> {
     Ok(font_engine::data_root()?.join("lively-refresh-resume.json"))
+}
+fn wallpaper_refresh_pending() -> Result<bool> {
+    Ok(resume_marker()?.try_exists()?)
 }
 fn known_lively(exe: &Path) -> Result<bool> {
     Ok(runtime::same_path(exe, &own_exe(&LIVELY)?)
@@ -130,37 +117,20 @@ impl WallpaperRefresh {
             transaction::persist_new(&marker, &serde_json::to_vec(exe)?)?;
         }
         runtime::preflight(exe)?;
-        // Upstream's secondary process sends its command asynchronously. A zero
-        // exit code alone is not acknowledgement; retry while the original lives.
-        for _ in 0..3 {
-            if !runtime::own_running(exe)? {
-                return Ok(());
+        if !runtime::own_running(exe)? {
+            return Ok(());
+        }
+        // Lively quits in the server method's finally block; the pipe may close
+        // before its Empty response is sent. For shutdown only, observe the
+        // original owned process exiting instead of treating lost ACK as failure.
+        let shutdown = crate::lively_rpc::shutdown();
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while runtime::own_running(exe)? {
+            if Instant::now() >= deadline {
+                shutdown.context("动态壁纸退出未完成，未刷新桌面。")?;
+                bail!("动态壁纸尚未退出，未刷新桌面。");
             }
-            let mut request = runtime::command(exe)
-                .args(["app", "--shutdown", "true"])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()?;
-            let deadline = Instant::now() + Duration::from_secs(3);
-            loop {
-                if let Some(status) = request.try_wait()? {
-                    if !status.success() {
-                        bail!("动态壁纸未正常响应退出请求，未刷新桌面。");
-                    }
-                    break;
-                }
-                if Instant::now() >= deadline {
-                    let _ = request.kill(); // Only the newly spawned command helper.
-                    bail!("动态壁纸退出请求超时，未刷新桌面。");
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            while runtime::own_running(exe)? {
-                if Instant::now() >= deadline {
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
+            std::thread::sleep(Duration::from_millis(100));
         }
         if runtime::own_running(exe)? {
             bail!("动态壁纸尚未退出，未刷新桌面。");
@@ -173,7 +143,12 @@ pub fn resume_lively_after_refresh() -> Result<()> {
     let bytes = match fs::read(&marker) {
         Ok(bytes) if bytes.len() <= 8192 => bytes,
         Ok(_) => bail!("动态壁纸恢复记录过大。"),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if carousel::active() && runtime::own_running(&lively_executable()?)? {
+                carousel::start_host()?;
+            }
+            return Ok(());
+        }
         Err(error) => return Err(error.into()),
     };
     let exe: PathBuf = serde_json::from_slice(&bytes)?;
@@ -207,37 +182,16 @@ pub fn resume_lively_after_refresh() -> Result<()> {
             }
         }
     }
+    // Keep the playlist intent while its engine was temporarily paused. Reset
+    // the timer only after recovery; a surviving host may still hold the lock.
+    if carousel::active() {
+        carousel::start_host()?;
+    }
     fs::remove_file(marker)?;
     Ok(())
 }
 fn installed(t: &Tool) -> Result<bool> {
     Ok(own_exe(t)?.is_file() || t.id == "lively" && lively_existing().is_some())
-}
-fn ep_supported() -> bool {
-    let b = crate::visual::build();
-    cfg!(target_arch = "x86_64") && ep_build_supported(b)
-}
-fn ep_build_supported(build: u32) -> bool {
-    matches!(build, 22621 | 22631 | 26100 | 26200)
-}
-pub fn ensure_classic_settings_supported() -> Result<()> {
-    if !ep_supported() || sac_enabled() {
-        bail!("当前系统未通过经典布局兼容性检查，已阻止启用和设置；仍可恢复系统任务栏。");
-    }
-    if !installed(&EP)? {
-        bail!("请先安装经典布局。");
-    }
-    Ok(())
-}
-fn sac_enabled() -> bool {
-    RegKey::predef(HKEY_LOCAL_MACHINE)
-        .open_subkey("SYSTEM\\CurrentControlSet\\Control\\CI\\Policy")
-        .ok()
-        .and_then(|k| {
-            k.get_value::<u32, _>("VerifiedAndReputablePolicyState")
-                .ok()
-        })
-        .is_some_and(|v| v == 1)
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -262,28 +216,15 @@ fn record(t: &Tool) -> Result<Option<Installation>> {
     }
 }
 pub fn states() -> Result<Vec<ToolState>> {
-    [&LIVELY, &EP]
-        .iter()
-        .map(|t| {
-            Ok(ToolState {
-                id: t.id.into(),
-                label: t.label.into(),
-                installed: installed(t)?,
-                managed: record(t)?.is_some_and(|s| s.installed_by_winglow),
-                supported: t.id == "lively" || ep_supported() && !sac_enabled(),
-                note: if t.id == "lively" {
-                    "一键优化自动启用精选壁纸轮播；静音，全屏和电池模式暂停。也可更换自己的视频。"
-                        .into()
-                } else if sac_enabled() {
-                    "智能应用控制已开启，暂不安装经典布局。".into()
-                } else if !ep_supported() {
-                    "当前 Windows 版本尚未验证经典布局。".into()
-                } else {
-                    "ExplorerPatcher：可调整任务栏和开始菜单；不会随一键优化安装。".into()
-                },
-            })
-        })
-        .collect()
+    Ok(vec![ToolState {
+        id: LIVELY.id.into(),
+        label: LIVELY.label.into(),
+        installed: installed(&LIVELY)?,
+        enabled: wallpaper_enabled()?,
+        managed: record(&LIVELY)?.is_some_and(|s| s.installed_by_winglow),
+        supported: true,
+        note: "点击图片直接切换壁纸；一键优化启用壁纸库轮播，默认静音。".into(),
+    }])
 }
 pub fn prepare(id: &str) -> Result<()> {
     let t = tool(id)?;
@@ -317,80 +258,10 @@ fn checked_bytes(t: &Tool, path: &Path) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 #[derive(Serialize, Deserialize)]
-struct RegistryBackup {
-    machine: bool,
-    tree: Option<RegistryTree>,
-}
-#[derive(Serialize, Deserialize)]
-struct RegistryTree {
-    values: Vec<(String, u32, Vec<u8>)>,
-    children: Vec<(String, RegistryTree)>,
-}
-fn capture_tree(key: &RegKey, depth: usize) -> Result<RegistryTree> {
-    if depth > 16 {
-        bail!("经典布局配置层级过深，未修改。");
-    }
-    let values = key
-        .enum_values()
-        .map(|v| v.map(|(name, v)| (name, v.vtype as u32, v.bytes.to_vec())))
-        .collect::<std::io::Result<Vec<_>>>()?;
-    let mut children = Vec::new();
-    for name in key.enum_keys() {
-        let name = name?;
-        children.push((
-            name.clone(),
-            capture_tree(&key.open_subkey(name)?, depth + 1)?,
-        ));
-    }
-    Ok(RegistryTree { values, children })
-}
-fn validate_tree(tree: &RegistryTree, depth: usize) -> Result<()> {
-    if depth > 16 {
-        bail!("经典布局备份层级无效。");
-    }
-    for (name, kind, _) in &tree.values {
-        if name.contains('\0') || !matches!(kind, 0 | 1 | 2 | 3 | 4 | 7 | 11) {
-            bail!("经典布局备份值无效。");
-        }
-    }
-    for (name, child) in &tree.children {
-        if name.is_empty() || name.contains(['\\', '/', '\0']) {
-            bail!("经典布局备份键无效。");
-        }
-        validate_tree(child, depth + 1)?;
-    }
-    Ok(())
-}
-fn restore_tree(key: &RegKey, tree: RegistryTree) -> Result<()> {
-    for (name, kind, bytes) in tree.values {
-        let vtype = match kind {
-            0 => REG_NONE,
-            1 => REG_SZ,
-            2 => REG_EXPAND_SZ,
-            3 => REG_BINARY,
-            4 => REG_DWORD,
-            7 => REG_MULTI_SZ,
-            11 => REG_QWORD,
-            _ => bail!("配置备份类型无效。"),
-        };
-        key.set_raw_value(
-            name,
-            &RegValue {
-                bytes: bytes.into(),
-                vtype,
-            },
-        )?;
-    }
-    for (name, child) in tree.children {
-        restore_tree(&key.create_subkey(name)?.0, child)?;
-    }
-    Ok(())
-}
-#[derive(Serialize, Deserialize)]
 struct Backup {
     version: u32,
     files: Vec<(String, Option<Vec<u8>>)>,
-    registry: Vec<RegistryBackup>,
+    registry: Vec<serde_json::Value>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -421,15 +292,104 @@ fn lively_executable() -> Result<PathBuf> {
         lively_existing().context("请先安装动态壁纸。")?
     })
 }
-pub fn wallpaper_startup_entry() -> Result<crate::registry::Entry> {
-    let exe = lively_existing().unwrap_or(own_exe(&LIVELY)?);
-    Ok(crate::registry::Entry {
-        slot: crate::registry::slot(crate::registry::Scope::Startup, "WinGlow-Lively"),
-        value: Some(crate::registry::string(&format!("\"{}\"", exe.display()))),
+fn wallpaper_enabled() -> Result<bool> {
+    if !installed(&LIVELY)? || !runtime::own_running(&lively_executable()?)? {
+        return Ok(false);
+    }
+    let layout: serde_json::Value = match fs::read(lively_file("WallpaperLayout.json")?) {
+        Ok(bytes) => serde_json::from_slice(&bytes)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    Ok(layout.as_array().is_some_and(|items| !items.is_empty()))
+}
+fn wallpaper_disabled_marker() -> Result<PathBuf> {
+    Ok(font_engine::data_root()?.join("wallpaper-disabled.json"))
+}
+fn set_wallpaper_enabled(enabled: bool) -> Result<ActionResult> {
+    crate::desktop_access::ensure_compatible()?;
+    let marker = wallpaper_disabled_marker()?;
+    if enabled {
+        if marker.is_file() {
+            if fs::metadata(&marker)?.len() > 8192 {
+                bail!("壁纸恢复记录无效。");
+            }
+            let before: WallpaperOptimization = serde_json::from_slice(&fs::read(&marker)?)?;
+            restore_wallpaper_optimization(&before)?;
+            if !wallpaper_enabled()? {
+                apply_wallpaper_optimization()?;
+            }
+            fs::remove_file(marker)?;
+        } else if !wallpaper_enabled()? {
+            if !installed(&LIVELY)? {
+                prepare("lively")?;
+                perform("lively", "install")?;
+            }
+            apply_wallpaper_optimization()?;
+        }
+        return Ok(ActionResult {
+            message: "动态壁纸已开启。".into(),
+        });
+    }
+    if !wallpaper_enabled()? {
+        carousel::stop()?;
+        disable_wallpaper_startup()?;
+        return Ok(ActionResult {
+            message: "动态壁纸已关闭。".into(),
+        });
+    }
+    let before = capture_wallpaper_optimization()?;
+    let temp = marker.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+    transaction::persist_new(&temp, &serde_json::to_vec(&before)?)?;
+    worker::replace_file(&temp, &marker)?;
+    let outcome = (|| -> Result<()> {
+        carousel::stop()?;
+        let exe = lively_executable()?;
+        send_wallpaper_command(&exe, &["closewp".into(), "--monitor".into(), "-1".into()])?;
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while wallpaper_enabled()? {
+            if Instant::now() >= deadline {
+                bail!("壁纸关闭尚未完成。");
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        disable_wallpaper_startup()?;
+        Ok(())
+    })();
+    if let Err(error) = outcome {
+        restore_wallpaper_optimization(&before)
+            .with_context(|| format!("{error:#}；关闭失败，原壁纸恢复未完成。"))?;
+        fs::remove_file(marker)?;
+        return Err(error);
+    }
+    Ok(ActionResult {
+        message: "动态壁纸已关闭，开启时恢复之前的壁纸。".into(),
     })
 }
-fn carousel_project() -> Result<PathBuf> {
-    scene_project("carousel", 5)
+fn disable_wallpaper_startup() -> Result<()> {
+    use transaction::ValueStore;
+    let own = wallpaper_startup_entry()?;
+    if crate::registry::WindowsRegistry.read(&own.slot)? == own.value {
+        crate::shell_engine::commit(
+            "wallpaper:disable-startup",
+            vec![crate::registry::Entry {
+                slot: own.slot,
+                value: None,
+            }],
+            || Ok(()),
+        )?;
+    }
+    Ok(())
+}
+pub fn wallpaper_startup_entry() -> Result<crate::registry::Entry> {
+    let exe = std::env::current_exe()?;
+    Ok(crate::registry::Entry {
+        slot: crate::registry::slot(crate::registry::Scope::Startup, "WinGlow-Lively"),
+        value: Some(crate::registry::string(&format!(
+            "\"{}\" --wallpaper-host",
+            exe.display()
+        ))),
+    })
 }
 fn scene_project(scene: &str, minutes: u32) -> Result<PathBuf> {
     if !matches!(scene, "carousel" | "night" | "sea" | "dawn")
@@ -488,32 +448,68 @@ pub fn apply_wallpaper_optimization() -> Result<()> {
     WallpaperRefresh::capture()?.pause()?;
     clear_wallpaper_resume()?;
     new_lively_settings()?;
-    let project = carousel_project()?;
+    let first = carousel::first_project()?;
+    persist_startup_selection(&first)?;
     let exe = lively_executable()?;
     ensure_lively_started(&exe)?;
-    send_wallpaper_command(
-        &exe,
-        &[
-            "setwp".into(),
-            "--file".into(),
-            project.to_string_lossy().into_owned(),
-        ],
-    )?;
-    // CLI exit only acknowledges dispatch. Require Lively's saved selection too.
+    carousel::configure(&exe, 5)
+}
+fn wait_for_selection(exe: &Path, project: &Path) -> Result<()> {
+    // Startup restores its saved wallpaper asynchronously. A momentary match
+    // can be overwritten by that restore; require a stable selected project.
     let deadline = Instant::now() + Duration::from_secs(25);
+    let mut matched_since = None;
     loop {
         if let Ok(bytes) = fs::read(lively_file("WallpaperLayout.json")?)
             && let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes)
-            && layout_contains_project(&value, &project)
-            && runtime::own_running(&exe)?
+            && layout_contains_project(&value, project)
+            && runtime::own_running(exe)?
         {
-            return Ok(());
+            let since = matched_since.get_or_insert_with(Instant::now);
+            if since.elapsed() >= Duration::from_secs(3) {
+                return Ok(());
+            }
+        } else {
+            matched_since = None;
         }
         if Instant::now() >= deadline {
-            bail!("动态壁纸尚未完成应用，请查看壁纸库；本次优化会恢复原设置。");
+            bail!("动态壁纸尚未完成应用，请在基础美化页重试。");
         }
         std::thread::sleep(Duration::from_millis(200));
     }
+}
+fn startup_layout(value: &serde_json::Value, project: &Path) -> Result<serde_json::Value> {
+    let mut desired = value.clone();
+    let items = desired
+        .as_array_mut()
+        .context("壁纸布局格式无效，未覆盖。")?;
+    if items.len() > 32 {
+        bail!("壁纸屏幕数量异常，未覆盖。");
+    }
+    for item in items {
+        let item = item.as_object_mut().context("壁纸屏幕配置无效，未覆盖。")?;
+        if !item.contains_key("LivelyScreen") || !item.contains_key("LivelyInfoPath") {
+            bail!("壁纸屏幕配置不完整，未覆盖。");
+        }
+        item.insert(
+            "LivelyInfoPath".into(),
+            serde_json::json!(project.to_string_lossy()),
+        );
+    }
+    Ok(desired)
+}
+fn persist_startup_selection(project: &Path) -> Result<()> {
+    let path = lively_file("WallpaperLayout.json")?;
+    let bytes = match fs::read(&path) {
+        Ok(bytes) if bytes.len() <= 1_000_000 => bytes,
+        Ok(_) => bail!("壁纸布局文件过大，未覆盖。"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    let desired = startup_layout(&serde_json::from_slice(&bytes)?, project)?;
+    let temporary = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+    transaction::persist_new(&temporary, &serde_json::to_vec_pretty(&desired)?)?;
+    worker::replace_file(&temporary, &path)
 }
 fn layout_contains_project(value: &serde_json::Value, project: &Path) -> bool {
     value.as_array().is_some_and(|items| {
@@ -571,6 +567,7 @@ fn clear_wallpaper_resume() -> Result<()> {
     }
 }
 pub fn restore_wallpaper_optimization(before: &WallpaperOptimization) -> Result<()> {
+    carousel::stop()?;
     WallpaperRefresh::capture()?.pause()?;
     clear_wallpaper_resume()?;
     if !before.installed_before && record(&LIVELY)?.is_some() {
@@ -580,10 +577,16 @@ pub fn restore_wallpaper_optimization(before: &WallpaperOptimization) -> Result<
     if before.running_before {
         ensure_lively_started(&lively_executable()?)?;
     }
+    if carousel::active() {
+        carousel::start_host()?;
+    }
     Ok(())
 }
 fn lively_file(name: &str) -> Result<PathBuf> {
-    if !matches!(name, "Settings.json" | "WallpaperLayout.json") {
+    if !matches!(
+        name,
+        "Settings.json" | "WallpaperLayout.json" | "WinGlowCarousel.json"
+    ) {
         bail!("未知壁纸备份文件。");
     }
     Ok(dirs::data_local_dir()
@@ -598,7 +601,11 @@ fn backup(t: &Tool) -> Result<PathBuf> {
         registry: vec![],
     };
     if t.id == "lively" {
-        for name in ["Settings.json", "WallpaperLayout.json"] {
+        for name in [
+            "Settings.json",
+            "WallpaperLayout.json",
+            "WinGlowCarousel.json",
+        ] {
             let bytes = match fs::read(lively_file(name)?) {
                 Ok(b) if b.len() <= 1_000_000 => Some(b),
                 Ok(_) => bail!("壁纸配置过大，未修改。"),
@@ -606,21 +613,6 @@ fn backup(t: &Tool) -> Result<PathBuf> {
                 Err(e) => return Err(e.into()),
             };
             b.files.push((name.into(), bytes));
-        }
-    } else {
-        for machine in [false, true] {
-            let tree = match RegKey::predef(if machine {
-                HKEY_LOCAL_MACHINE
-            } else {
-                HKEY_CURRENT_USER
-            })
-            .open_subkey("Software\\ExplorerPatcher")
-            {
-                Ok(k) => Some(capture_tree(&k, 0)?),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-                Err(e) => return Err(e.into()),
-            };
-            b.registry.push(RegistryBackup { machine, tree });
         }
     }
     let dir = font_engine::backup_root()?
@@ -665,48 +657,13 @@ fn restore_profile(t: &Tool, dir: &Path) -> Result<()> {
                 return Err(e.into());
             }
         }
-    } else {
-        for saved in &b.registry {
-            if let Some(tree) = &saved.tree {
-                validate_tree(tree, 0)?;
-            }
-        }
-        for saved in b.registry {
-            let hive = RegKey::predef(if saved.machine {
-                HKEY_LOCAL_MACHINE
-            } else {
-                HKEY_CURRENT_USER
-            });
-            match hive.delete_subkey_all("Software\\ExplorerPatcher") {
-                Ok(()) => (),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (),
-                Err(e) => return Err(e.into()),
-            }
-            if let Some(tree) = saved.tree {
-                restore_tree(&hive.create_subkey("Software\\ExplorerPatcher")?.0, tree)?;
-            }
-        }
     }
     Ok(())
 }
 fn installer(t: &Tool) -> Result<PathBuf> {
-    let cache = root(t)?.join("setup.exe");
-    let bytes = checked_bytes(t, &cache)?;
-    if t.id == "lively" {
-        return Ok(cache);
-    }
-    // Elevated EP execution uses an administrator-owned directory, never a user-writable cache.
-    let dest = program_files()?
-        .join("WinGlow Components/ExplorerPatcher")
-        .join(t.version)
-        .join("ep_setup.exe");
-    fs::create_dir_all(dest.parent().unwrap())?;
-    if dest.exists() {
-        checked_bytes(t, &dest)?;
-    } else {
-        transaction::persist_new(&dest, &bytes)?;
-    }
-    Ok(dest)
+    let path = root(t)?.join("setup.exe");
+    checked_bytes(t, &path)?;
+    Ok(path)
 }
 fn new_lively_settings() -> Result<()> {
     let path = lively_file("Settings.json")?;
@@ -732,171 +689,75 @@ fn new_lively_settings() -> Result<()> {
 pub fn perform(id: &str, action: &str) -> Result<ActionResult> {
     let t = tool(id)?;
     match action {
+        "enable" => set_wallpaper_enabled(true),
+        "disable" => set_wallpaper_enabled(false),
         "install" => {
             if installed(t)? {
-                bail!("该工具已安装，请使用打开入口。不会覆盖已有安装。");
+                bail!("动态壁纸已安装。");
             }
-            if t.id == "explorer-patcher" && (!ep_supported() || sac_enabled()) {
-                bail!("当前系统不适合安装经典布局。未修改智能应用控制或安全软件设置。");
-            }
-            if t.id == "lively" && !runtime::processes("Lively.exe")?.is_empty() {
+            if !runtime::processes("Lively.exe")?.is_empty() {
                 bail!("已有动态壁纸正在运行，不会覆盖它。");
             }
-            let dir = backup(t)?;
-            let mut r = record(t)?.unwrap_or(Installation {
+            let saved = backup(t)?;
+            fs::create_dir_all(root(t)?)?;
+            let record = Installation {
                 version: 1,
                 tool_version: t.version.into(),
-                backup: dir.to_string_lossy().into_owned(),
+                backup: saved.to_string_lossy().into_owned(),
                 installed_by_winglow: true,
-            });
-            r.installed_by_winglow = true;
-            fs::create_dir_all(root(t)?)?;
+            };
             if !marker(t)?.exists() {
-                transaction::persist_new(&marker(t)?, &serde_json::to_vec(&r)?)?;
+                transaction::persist_new(&marker(t)?, &serde_json::to_vec(&record)?)?;
             }
-            let setup = installer(t)?;
-            let result = (|| {
-                let mut cmd = runtime::command(&setup);
-                if t.id == "lively" {
-                    new_lively_settings()?;
-                    cmd.args([
-                        "/VERYSILENT",
-                        "/SUPPRESSMSGBOXES",
-                        "/NORESTART",
-                        "/NOAUTOLAUNCH",
-                        "/CURRENTUSER",
-                        "/TASKS=",
-                    ])
-                    .arg(format!("/DIR={}", root(t)?.join("Application").display()));
-                } else {
-                    cmd.arg("/update_silent");
-                }
-                let status = cmd.status()?;
-                if !status.success() || !own_exe(t)?.is_file() {
-                    bail!("{} 安装未完成。", t.label);
-                }
-                Ok(())
-            })();
-            if let Err(e) = result {
-                // Keep the ownership/checkpoint record for a partial external installation.
-                if !own_exe(t)?.is_file() {
-                    restore_profile(t, Path::new(&r.backup))?;
-                    fs::remove_file(marker(t)?)?;
-                }
-                return Err(e);
+            new_lively_settings()?;
+            let status = runtime::command(&installer(t)?)
+                .args([
+                    "/VERYSILENT",
+                    "/SUPPRESSMSGBOXES",
+                    "/NORESTART",
+                    "/NOAUTOLAUNCH",
+                    "/CURRENTUSER",
+                    "/TASKS=",
+                ])
+                .arg(format!("/DIR={}", root(t)?.join("Application").display()))
+                .status()?;
+            if !status.success() || !own_exe(t)?.is_file() {
+                bail!("动态壁纸安装未完成，恢复记录已保留。");
             }
             Ok(ActionResult {
-                message: format!("{} 已安装。使用该功能右侧的设置按钮。", t.label),
+                message: "动态壁纸已安装，点击壁纸图片即可切换。".into(),
             })
         }
         "open" => {
-            if t.id == "explorer-patcher" {
-                ensure_classic_settings_supported()?;
-            }
-            if !installed(t)? {
-                bail!("请先安装该可选功能。");
-            }
-            backup(t)?;
-            if t.id == "lively" {
-                let exe = if own_exe(t)?.exists() {
-                    own_exe(t)?
-                } else {
-                    lively_existing().context("无法定位已有壁纸软件。")?
-                };
-                runtime::preflight(&exe)?;
-                if runtime::own_running(&exe)? {
-                    runtime::command(&exe)
-                        .args(["app", "--showApp", "true"])
-                        .spawn()?;
-                } else {
-                    runtime::command(&exe).spawn()?;
-                }
-            } else {
-                let arg = format!("\"{}\",ZZGUI", own_exe(t)?.display());
-                use windows::{
-                    Win32::UI::{Shell::ShellExecuteW, WindowsAndMessaging::SW_SHOWNORMAL},
-                    core::PCWSTR,
-                };
-                let file: Vec<u16> = runtime::system_exe("rundll32.exe")?
-                    .as_os_str()
-                    .encode_wide()
-                    .chain(Some(0))
-                    .collect();
-                let params: Vec<u16> = arg.encode_utf16().chain(Some(0)).collect();
-                let result = unsafe {
-                    ShellExecuteW(
-                        None,
-                        PCWSTR::null(),
-                        PCWSTR(file.as_ptr()),
-                        PCWSTR(params.as_ptr()),
-                        PCWSTR::null(),
-                        SW_SHOWNORMAL,
-                    )
-                };
-                if result.0 as usize <= 32 {
-                    bail!("无法打开经典布局设置。");
-                }
-            }
+            let exe = lively_executable()?;
+            ensure_lively_started(&exe)?;
+            send_wallpaper_command(&exe, &["app".into(), "--showApp".into(), "true".into()])?;
             Ok(ActionResult {
-                message: format!("已打开{}。", t.label),
-            })
-        }
-        "system-taskbar" if t.id == "explorer-patcher" => {
-            if !installed(t)? {
-                bail!("经典布局未安装，无需恢复。");
-            }
-            backup(t)?;
-            let (key, _) =
-                RegKey::predef(HKEY_CURRENT_USER).create_subkey("Software\\ExplorerPatcher")?;
-            key.set_value("OldTaskbar", &0u32)?;
-            Ok(ActionResult {
-                message: "已恢复系统任务栏，经典布局的其他设置保留。".into(),
+                message: "已打开动态壁纸。".into(),
             })
         }
         "remove" => {
-            let r = record(t)?
+            let record = record(t)?
                 .filter(|s| s.installed_by_winglow)
-                .context("该工具不是由 WinGlow 安装，不会卸载用户原有软件。")?;
+                .context("不会卸载用户原有软件。")?;
             backup(t)?;
-            if t.id == "lively" {
-                let exe = own_exe(t)?;
-                runtime::preflight(&exe)?;
-                if runtime::own_running(&exe)? {
-                    runtime::command(&exe)
-                        .args(["app", "--shutdown", "true"])
-                        .status()?;
-                    let until = Instant::now() + Duration::from_secs(8);
-                    while runtime::own_running(&exe)? && Instant::now() < until {
-                        std::thread::sleep(Duration::from_millis(100));
-                    }
-                    if runtime::own_running(&exe)? {
-                        bail!("动态壁纸尚未退出，未强制关闭。");
-                    }
-                }
-                let uninstaller = root(t)?.join("Application/unins000.exe");
-                if uninstaller.exists()
-                    && !runtime::command(&uninstaller)
-                        .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
-                        .status()?
-                        .success()
-                {
-                    bail!("动态壁纸卸载未完成。");
-                }
-            } else if own_exe(t)?.is_file()
-                && !runtime::command(&installer(t)?)
-                    .arg("/uninstall_silent")
+            carousel::stop()?;
+            WallpaperRefresh::capture()?.pause()?;
+            clear_wallpaper_resume()?;
+            let uninstall = root(t)?.join("Application/unins000.exe");
+            if !uninstall.is_file()
+                || !runtime::command(&uninstall)
+                    .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
                     .status()?
                     .success()
+                || own_exe(t)?.is_file()
             {
-                bail!("经典布局卸载未完成。");
+                bail!("动态壁纸卸载未完成。");
             }
-            if own_exe(t)?.is_file() {
-                bail!("可选工具仍在安装目录中，请重试还原。");
-            }
-            restore_profile(t, Path::new(&r.backup))?;
+            restore_profile(t, Path::new(&record.backup))?;
             fs::remove_file(marker(t)?)?;
             Ok(ActionResult {
-                message: format!("已还原{}；保留你的壁纸库和媒体文件。", t.label),
+                message: "已还原动态壁纸，壁纸库与媒体文件保留。".into(),
             })
         }
         _ => bail!("未知可选工具操作。"),
@@ -906,27 +767,10 @@ pub fn run(id: String, action: String) -> Result<ActionResult> {
     tool(&id)?;
     let _guard = worker::optimization_lock()?;
     crate::shell_engine::ensure_ready()?;
-    if id == "explorer-patcher" && action == "install" && (!ep_supported() || sac_enabled()) {
-        bail!("当前系统未通过经典布局兼容验证，未安装。其他美化功能可正常使用。");
-    }
-    if id == "explorer-patcher" && action == "system-taskbar" {
-        let result = worker::run_inner(crate::models::Operation::OptionalTool { id, verb: action });
-        return crate::explorer::finish(result, true, crate::explorer::restart);
-    }
-    if action == "install"
-        || action == "remove" && id == "explorer-patcher" && own_exe(tool(&id)?)?.is_file()
-    {
+    if action == "install" {
         prepare(&id)?;
     }
-    // EP's installer refreshes Explorer itself; protect all desktop-dependent effects.
-    let refresh = id == "explorer-patcher" && matches!(action.as_str(), "install" | "remove");
-    let operation =
-        || worker::run_inner(crate::models::Operation::OptionalTool { id, verb: action });
-    if refresh {
-        crate::explorer::external_refresh(operation)
-    } else {
-        operation()
-    }
+    perform(&id, &action)
 }
 
 fn media_path(path: &Path) -> Result<()> {
@@ -1006,16 +850,28 @@ fn library_project(id: &str) -> Result<PathBuf> {
     if !wallpaper_supported(&info) {
         bail!("这个壁纸在当前播放器中出现白屏，暂未接入。原壁纸文件保留，请选择其他壁纸。");
     }
-    Ok(project)
+    let file = PathBuf::from(info["FileName"].as_str().unwrap());
+    if file.is_absolute() {
+        media_path(&file)?;
+    } else if !project.join(file).canonicalize()?.starts_with(&project) {
+        bail!("壁纸资源不在原项目目录内。");
+    }
+    Ok(player_path(&project))
+}
+// Rust canonicalize returns verbatim Windows paths. WebView2's virtual-host
+// folder mapping cannot resolve relative assets reliably with that prefix.
+fn player_path(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{unc}"))
+    } else {
+        PathBuf::from(text.strip_prefix(r"\\?\").unwrap_or(&text))
+    }
 }
 fn wallpaper_supported(info: &serde_json::Value) -> bool {
-    // Observed on the bundled Parallax demo: unstyled page and broken images.
-    // Do not offer a known-broken project until its player compatibility is verified.
-    !info["Title"]
+    info["FileName"]
         .as_str()
-        .unwrap_or("")
-        .to_ascii_lowercase()
-        .contains("parallax")
+        .is_some_and(|name| !name.is_empty())
 }
 fn wallpaper_undo_marker() -> Result<PathBuf> {
     Ok(font_engine::data_root()?.join("wallpaper-settings-undo.json"))
@@ -1023,19 +879,12 @@ fn wallpaper_undo_marker() -> Result<PathBuf> {
 pub fn wallpaper_library() -> Result<WallpaperLibrary> {
     use base64::{Engine, engine::general_purpose::STANDARD};
     let mut items = vec![];
-    for (id, title, scene) in [
-        ("carousel", "自动轮播", None),
-        ("night", "夜色", Some("night")),
-        ("sea", "海色", Some("sea")),
-        ("dawn", "晨光", Some("dawn")),
-    ] {
-        items.push(WallpaperCard {
-            id: format!("builtin:{id}"),
-            title: title.into(),
-            preview: None,
-            scene: scene.map(String::from),
-        });
-    }
+    items.push(WallpaperCard {
+        id: "builtin:carousel".into(),
+        title: "自动轮播".into(),
+        preview: None,
+        scene: None,
+    });
     let root = lively_library()?.join("wallpapers");
     if let Ok(dirs) = fs::read_dir(&root) {
         let mut dirs = dirs.filter_map(|d| d.ok()).collect::<Vec<_>>();
@@ -1062,7 +911,9 @@ pub fn wallpaper_library() -> Result<WallpaperLibrary> {
                 .filter(|n| !n.contains(['\\', '/']) && !matches!(*n, "." | ".."))
                 .and_then(|n| {
                     let p = project.join(n).canonicalize().ok()?;
-                    if p.parent() != Some(project.as_path())
+                    if !p
+                        .parent()
+                        .is_some_and(|parent| runtime::same_path(parent, &project))
                         || fs::metadata(&p).ok()?.len() > 200_000
                     {
                         return None;
@@ -1093,6 +944,7 @@ pub fn wallpaper_library() -> Result<WallpaperLibrary> {
             });
         }
     }
+    items[0].preview = items.iter().skip(1).find_map(|item| item.preview.clone());
     let path = lively_file("Settings.json")?;
     let settings = fs::read(path)
         .ok()
@@ -1132,6 +984,12 @@ pub fn wallpaper_library() -> Result<WallpaperLibrary> {
             format!("library:{n}")
         }
     });
+    let selected = if carousel::active() {
+        interval_minutes = carousel::minutes();
+        Some("builtin:carousel".into())
+    } else {
+        selected
+    };
     Ok(WallpaperLibrary {
         items,
         selected,
@@ -1158,17 +1016,26 @@ fn wallpaper_change(change: impl FnOnce(&Path) -> Result<()>) -> Result<ActionRe
             Err(restore) => Err(anyhow::anyhow!("{error:#}；原壁纸恢复未完成：{restore:#}")),
         };
     }
+    match fs::remove_file(wallpaper_disabled_marker()?) {
+        Ok(()) => (),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+        Err(error) => return Err(error.into()),
+    }
     Ok(ActionResult {
         message: "壁纸设置已应用。".into(),
     })
 }
 pub fn select_wallpaper(id: String, minutes: u32) -> Result<ActionResult> {
+    if id == "builtin:carousel" {
+        return wallpaper_change(|exe| carousel::configure(exe, minutes));
+    }
     let project = if let Some(scene) = id.strip_prefix("builtin:") {
         scene_project(scene, minutes)?
     } else {
         library_project(&id)?
     };
     wallpaper_change(|exe| {
+        carousel::stop()?;
         send_wallpaper_command(
             exe,
             &[
@@ -1177,21 +1044,7 @@ pub fn select_wallpaper(id: String, minutes: u32) -> Result<ActionResult> {
                 project.to_string_lossy().into_owned(),
             ],
         )?;
-        let deadline = Instant::now() + Duration::from_secs(25);
-        loop {
-            if fs::read(lively_file("WallpaperLayout.json")?)
-                .ok()
-                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-                .is_some_and(|v| layout_contains_project(&v, &project))
-            {
-                break;
-            }
-            if Instant::now() >= deadline {
-                bail!("壁纸尚未完成加载，已尝试恢复原设置。");
-            }
-            std::thread::sleep(Duration::from_millis(200));
-        }
-        Ok(())
+        wait_for_selection(exe, &project)
     })
 }
 pub fn set_wallpaper_volume(volume: u8) -> Result<ActionResult> {
@@ -1240,12 +1093,6 @@ pub fn diagnose_integrated_controls() -> Result<()> {
     transaction::persist_new(&checkpoint, &serde_json::to_vec(&before)?)?;
     let taskbar_before = crate::taskbar::read_config()?;
     let outcome = (|| {
-        if !ep_supported() {
-            let settings = crate::desktop_settings::classic_settings()?;
-            if crate::desktop_settings::apply_classic(settings).is_ok() {
-                bail!("不兼容系统没有拦截经典布局设置。");
-            }
-        }
         select_wallpaper("builtin:night".into(), 5)?;
         if wallpaper_library()?.selected.as_deref() != Some("builtin:night") {
             bail!("夜色选中状态未同步。");
@@ -1361,27 +1208,42 @@ fn ensure_lively_started(exe: &Path) -> Result<()> {
     Ok(())
 }
 fn send_wallpaper_command(exe: &Path, args: &[String]) -> Result<()> {
-    let mut child = runtime::command(exe).args(args).spawn()?;
-    let deadline = Instant::now() + Duration::from_secs(15);
-    loop {
-        if let Some(status) = child.try_wait()? {
-            if !status.success() {
-                bail!("动态壁纸未接受操作请求。");
-            }
-            break;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!("动态壁纸操作超时，请打开壁纸库检查组件状态。");
-        }
-        std::thread::sleep(Duration::from_millis(100));
+    runtime::preflight(exe)?;
+    if !runtime::own_running(exe)? {
+        bail!("动态壁纸组件尚未运行。");
     }
-    Ok(())
+    crate::lively_rpc::command(args)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn local_wallpaper_metadata_is_complete() {
+        let metadata: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../wallpaper/LivelyInfo.json")).unwrap();
+        assert_eq!(metadata["Type"], 1);
+        assert_eq!(metadata["FileName"], "index.html");
+        assert_eq!(metadata["IsAbsolutePath"], false);
+    }
+    #[test]
+    fn startup_selection_replaces_old_wallpapers_without_changing_monitor_layout() {
+        let before = serde_json::json!([
+            {"LivelyScreen":{"Index":1,"Bounds":"0,0,3840,2160"},"LivelyInfoPath":"old1","custom":true},
+            {"LivelyScreen":{"Index":2,"Bounds":"-2560,0,2560,1440"},"LivelyInfoPath":"old2"}
+        ]);
+        let project = Path::new("C:\\wallpaper\\carousel");
+        let desired = startup_layout(&before, project).unwrap();
+        assert_eq!(before[0]["LivelyInfoPath"], "old1");
+        assert_eq!(desired[0]["LivelyScreen"], before[0]["LivelyScreen"]);
+        assert_eq!(desired[1]["LivelyScreen"], before[1]["LivelyScreen"]);
+        assert_eq!(desired[0]["custom"], true);
+        assert_eq!(
+            desired[1]["LivelyInfoPath"],
+            project.to_string_lossy().as_ref()
+        );
+        assert!(startup_layout(&serde_json::json!([{}]), project).is_err());
+        assert!(startup_layout(&serde_json::json!({}), project).is_err());
+    }
     #[test]
     fn scene_selection_and_rotation_do_not_require_remote_scripts() {
         let scene = scene_html("sea", 5);
@@ -1395,15 +1257,7 @@ mod tests {
         }
         assert!(set_wallpaper_volume(101).is_err());
     }
-    #[test]
-    fn reject_untested_explorer_patcher_builds() {
-        for build in [22621, 22631, 26100, 26200] {
-            assert!(ep_build_supported(build));
-        }
-        for build in [22000, 26300, 28000, 30000] {
-            assert!(!ep_build_supported(build));
-        }
-    }
+
     #[test]
     fn wallpaper_ack_requires_the_actual_selected_project() {
         let project = std::env::temp_dir().join("winglow-carousel-v1");
@@ -1434,52 +1288,21 @@ mod tests {
         assert!(tool("../../setup.exe").is_err());
         assert!(lively_file("../Library").is_err());
     }
+
     #[test]
-    fn reject_wrong_download_before_install() {
-        assert!(validate_download(&EP, b"MZ").is_err());
-    }
-    #[test]
-    fn registry_snapshot_roundtrip_preserves_nested_raw_values() {
-        let hive = RegKey::predef(HKEY_CURRENT_USER);
-        let path = format!("Software\\WinGlowTests\\{}", uuid::Uuid::new_v4());
-        let (key, _) = hive.create_subkey(&path).unwrap();
-        let result = (|| -> Result<()> {
-            key.set_value("title", &"original")?;
-            key.create_subkey("nested")?.0.set_raw_value(
-                "bytes",
-                &RegValue {
-                    vtype: REG_BINARY,
-                    bytes: vec![0, 255, 42].into(),
-                },
-            )?;
-            let before = capture_tree(&key, 0)?;
-            validate_tree(&before, 0)?;
-            let encoded = serde_json::to_vec(&before)?;
-            drop(key);
-            hive.delete_subkey_all(&path)?;
-            restore_tree(
-                &hive.create_subkey(&path)?.0,
-                serde_json::from_slice(&encoded)?,
-            )?;
-            let after = capture_tree(&hive.open_subkey(&path)?, 0)?;
-            assert_eq!(serde_json::to_vec(&after)?, encoded);
-            Ok(())
-        })();
-        hive.delete_subkey_all(&path).unwrap();
-        result.unwrap();
-    }
-    #[test]
-    fn reject_registry_snapshot_path_escape_before_restoring() {
-        let tree = RegistryTree {
-            values: vec![],
-            children: vec![(
-                "../other".into(),
-                RegistryTree {
-                    values: vec![],
-                    children: vec![],
-                },
-            )],
-        };
-        assert!(validate_tree(&tree, 0).is_err());
+    fn player_paths_keep_unicode_and_unc_without_verbatim_prefix() {
+        assert_eq!(
+            player_path(Path::new(r"\\?\C:\壁纸\Rain")),
+            Path::new(r"C:\壁纸\Rain")
+        );
+        assert_eq!(
+            player_path(Path::new(r"\\?\UNC\server\share\壁纸")),
+            Path::new(r"\\server\share\壁纸")
+        );
+        assert_eq!(
+            player_path(Path::new(r"C:\wallpaper")),
+            Path::new(r"C:\wallpaper")
+        );
+        assert!(tool("explorer-patcher").is_err());
     }
 }

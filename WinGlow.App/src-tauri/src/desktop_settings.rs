@@ -1,7 +1,7 @@
-//! Fixed, journalled settings for the owned taskbar and optional classic layout.
+//! Journalled settings for the owned taskbar.
 use crate::{
     models::ActionResult,
-    registry::{self, Entry, Scope, WindowsRegistry},
+    registry::{self, Scope, WindowsRegistry},
     shell_engine, taskbar,
     transaction::ValueStore,
 };
@@ -44,12 +44,21 @@ impl TaskbarLook {
         serde_json::json!({"accent":self.accent,"color":format!("{}{:02X}",self.color, (u32::from(self.opacity)*255+50)/100),"show_line":self.show_line,"enabled":enabled})
     }
 }
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TaskbarSettings {
     pub desktop: TaskbarLook,
     pub maximized: Option<TaskbarLook>,
     pub start_open: Option<TaskbarLook>,
+}
+impl Default for TaskbarSettings {
+    fn default() -> Self {
+        Self {
+            desktop: TaskbarLook::default(),
+            maximized: Some(TaskbarLook::default()),
+            start_open: Some(TaskbarLook::default()),
+        }
+    }
 }
 pub fn taskbar_settings() -> Result<TaskbarSettings> {
     let Some(value) = taskbar::read_config()? else {
@@ -105,13 +114,16 @@ fn taskbar_bytes(
     }
     let mut json = match previous {
         Some(v) => serde_json::from_slice::<serde_json::Value>(&v.bytes)?,
-        None => serde_json::json!({}),
+        None => serde_json::from_slice(&taskbar::config())?,
     };
     let obj = json
         .as_object_mut()
         .ok_or_else(|| anyhow::anyhow!("任务栏配置无效，未覆盖。"))?;
     for (name, patch) in [
         ("desktop_appearance", settings.desktop.json(true)),
+        ("visible_window_appearance", settings.desktop.json(true)),
+        ("search_opened_appearance", settings.desktop.json(true)),
+        ("task_view_opened_appearance", settings.desktop.json(true)),
         (
             "maximized_window_appearance",
             settings
@@ -141,8 +153,8 @@ fn taskbar_bytes(
     Ok(serde_json::to_vec_pretty(&json)?)
 }
 pub fn apply_taskbar(settings: TaskbarSettings) -> Result<ActionResult> {
-    if classic_settings()?.taskbar != 0 {
-        bail!("经典任务栏正在启用，请先恢复系统任务栏，再应用透明效果。");
+    if legacy_taskbar_active()? {
+        bail!("第三方任务栏替代组件正在启用，请先恢复系统任务栏。");
     }
     let bytes = taskbar_bytes(&settings, taskbar::read_config()?.as_ref())?;
     taskbar::prepare()?;
@@ -158,147 +170,23 @@ pub fn apply_taskbar(settings: TaskbarSettings) -> Result<ActionResult> {
     })
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ClassicSettings {
-    pub taskbar: u32,
-    pub alignment: u32,
-    pub combine: u32,
-    pub small_icons: bool,
-    pub start_menu: u32,
+pub fn legacy_taskbar_active() -> Result<bool> {
+    Ok(WindowsRegistry
+        .read(&registry::slot(Scope::ClassicConfig, "OldTaskbar"))?
+        .is_some_and(|v| v.kind == 4 && v.bytes.as_slice() != 0u32.to_le_bytes()))
 }
-pub fn classic_settings() -> Result<ClassicSettings> {
-    fn number(scope: Scope, name: &str, default: u32) -> Result<u32> {
-        Ok(WindowsRegistry
-            .read(&registry::slot(scope, name))?
-            .filter(|v| v.kind == 4 && v.bytes.len() == 4)
-            .map(|v| u32::from_le_bytes(v.bytes.try_into().unwrap()))
-            .unwrap_or(default))
-    }
-    Ok(ClassicSettings {
-        taskbar: number(Scope::ClassicConfig, "OldTaskbar", 0)?,
-        alignment: number(Scope::Explorer, "TaskbarAl", 1)?,
-        combine: number(Scope::Explorer, "TaskbarGlomLevel", 0)?,
-        small_icons: number(Scope::Explorer, "TaskbarSmallIcons", 0)? != 0,
-        start_menu: number(Scope::Explorer, "Start_ShowClassicMode", 0)?,
-    })
-}
-fn classic_plan(settings: &ClassicSettings) -> Result<Vec<Entry>> {
-    if !matches!(settings.taskbar, 0 | 2)
-        || settings.alignment > 1
-        || settings.combine > 2
-        || settings.start_menu > 1
-    {
-        bail!("经典布局参数无效。");
-    }
-    let mut entries = vec![];
-    for (scope, name, value) in [
-        (Scope::ClassicConfig, "OldTaskbar", settings.taskbar),
-        (Scope::ClassicConfig, "OldTaskbarAl", settings.alignment),
-        (Scope::ClassicConfig, "MMOldTaskbarAl", settings.alignment),
-        (Scope::Explorer, "TaskbarAl", settings.alignment),
-        (Scope::Explorer, "TaskbarGlomLevel", settings.combine),
-        (Scope::Explorer, "MMTaskbarGlomLevel", settings.combine),
-        (
-            Scope::Explorer,
-            "TaskbarSmallIcons",
-            u32::from(settings.small_icons),
-        ),
-        (
-            Scope::Explorer,
-            "Start_ShowClassicMode",
-            settings.start_menu,
-        ),
-    ] {
-        entries.push(Entry {
-            slot: registry::slot(scope, name),
-            value: Some(shell_engine::dword(value)),
-        });
-    }
-    Ok(entries)
-}
-pub fn apply_classic(settings: ClassicSettings) -> Result<ActionResult> {
-    crate::optional_tools::ensure_classic_settings_supported()?;
-    if settings.start_menu == 1 && crate::visual::start_enabled()? {
-        bail!("请先关闭开始菜单美化，再使用经典开始菜单，避免两个组件同时调整开始菜单。");
-    }
-    let mut entries = classic_plan(&settings)?;
-    entries.push(Entry {
-        slot: taskbar::startup_slot(),
-        value: if settings.taskbar != 0 {
-            None
-        } else {
-            WindowsRegistry.read(&taskbar::startup_slot())?
-        },
-    });
-    let result = shell_engine::commit("visual:classic-settings", entries, || {
-        if settings.taskbar != 0 {
-            taskbar::pause_owned()
-        } else {
-            Ok(())
-        }
-    });
-    if result.is_err() {
-        let _ = taskbar::sync();
-    }
-    result.map(|_| ActionResult {
-        message: "经典布局设置已保存。注销后生效，避免连续重启资源管理器。".into(),
-    })
-}
-pub fn restore_classic() -> Result<ActionResult> {
-    crate::optional_tools::ensure_classic_settings_supported()?;
-    let mut names = classic_plan(&ClassicSettings {
-        taskbar: 0,
-        alignment: 1,
-        combine: 0,
-        small_icons: false,
-        start_menu: 0,
-    })?
-    .into_iter()
-    .map(|e| e.slot)
-    .collect::<Vec<_>>();
-    names.push(taskbar::startup_slot());
-    // This feature's baseline is distinct from the earlier one-click baseline.
-    // Restoring layout should retain the taskbar that was enabled before it.
-    let mut original = std::collections::BTreeMap::new();
-    for dir in crate::transaction::backup_directories(&crate::font_engine::backup_root()?)?
-        .iter()
-        .rev()
-    {
-        if !dir.join("committed").is_file() {
-            continue;
-        }
-        let journal = crate::transaction::read_journal(dir)?;
-        if journal.operation != "visual:classic-settings" {
-            continue;
-        }
-        for entry in journal.before {
-            if names.contains(&entry.slot) {
-                original.entry(entry.slot.clone()).or_insert(entry);
-            }
-        }
-    }
-    if original.is_empty() {
-        return Ok(ActionResult {
-            message: "没有需要恢复的经典布局设置。".into(),
-        });
-    }
-    let entries = names
-        .into_iter()
-        .map(|slot| {
-            Ok(original.remove(&slot).unwrap_or(Entry {
-                value: WindowsRegistry.read(&slot)?,
-                slot,
-            }))
-        })
-        .collect::<Result<Vec<_>>>()?;
-    shell_engine::commit("visual:classic-restore", entries, || Ok(())).map(|_| ActionResult {
-        message: "已恢复经典布局修改前的设置，注销后生效。".into(),
-    })
-}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn first_taskbar_application_keeps_all_optimization_defaults() {
+        let settings = TaskbarSettings::default();
+        let actual: serde_json::Value =
+            serde_json::from_slice(&taskbar_bytes(&settings, None).unwrap()).unwrap();
+        let expected: serde_json::Value = serde_json::from_slice(&taskbar::config()).unwrap();
+        assert_eq!(actual, expected);
+    }
     #[test]
     fn taskbar_changes_preserve_other_rules_and_validate_colors() {
         let previous = registry::StoredValue {
@@ -316,6 +204,9 @@ mod tests {
         let v: serde_json::Value =
             serde_json::from_slice(&taskbar_bytes(&s, Some(&previous)).unwrap()).unwrap();
         assert_eq!(v["search_opened_appearance"]["enabled"], true);
+        assert_eq!(v["search_opened_appearance"]["accent"], "blur");
+        assert_eq!(v["visible_window_appearance"]["color"], "#00000080");
+        assert_eq!(v["task_view_opened_appearance"]["color"], "#00000080");
         assert_eq!(v["unknown"], 42);
         assert_eq!(v["desktop_appearance"]["blur_radius"], 12);
         assert_eq!(
@@ -325,20 +216,5 @@ mod tests {
         assert_eq!(v["desktop_appearance"]["color"], "#00000080");
         s.desktop.color = "#x00000".into();
         assert!(taskbar_bytes(&s, None).is_err());
-    }
-    #[test]
-    fn classic_plan_rejects_arbitrary_modes_and_keeps_fixed_slots() {
-        let mut s = ClassicSettings {
-            taskbar: 2,
-            alignment: 0,
-            combine: 2,
-            small_icons: true,
-            start_menu: 0,
-        };
-        for e in classic_plan(&s).unwrap() {
-            registry::validate_slot(&e.slot).unwrap();
-        }
-        s.taskbar = 999;
-        assert!(classic_plan(&s).is_err());
     }
 }

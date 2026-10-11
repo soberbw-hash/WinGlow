@@ -1,4 +1,4 @@
-param([switch]$SkipChecks, [string]$SigningKeyPath)
+﻿param([switch]$SkipChecks, [string]$SigningKeyPath, [string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $appRoot = Join-Path $repoRoot 'WinGlow.App'
@@ -12,7 +12,7 @@ if (-not $env:TAURI_SIGNING_PRIVATE_KEY) {
     $env:TAURI_SIGNING_PRIVATE_KEY = $SigningKeyPath
     $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''
 }
-$outRoot = Join-Path $repoRoot "artifacts\WinGlow-$version"
+$outRoot = if ($OutputDirectory) { [IO.Path]::GetFullPath($OutputDirectory) } else { Join-Path $repoRoot "artifacts\WinGlow-$version" }
 $portable = Join-Path $outRoot "WinGlow-$version-Portable"
 function Invoke-Checked([string]$program, [string[]]$arguments) {
     & $program @arguments
@@ -53,6 +53,7 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $licenses 'APP-LICENSE.txt') -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\Breeze-AGPL-3.0.txt') -Destination $licenses -Force
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\Lively-GPL-3.0.txt') -Destination $licenses -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'licenses\TranslucentTB-GPL-3.0.md') -Destination $licenses -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'third-party\TranslucentTB\SOURCE.md') -Destination (Join-Path $licenses 'TranslucentTB-SOURCE.md') -Force
     foreach ($name in @('Windhawk-GPL-3.0.txt','Windhawk-LLVM-LICENSE.txt')) { Copy-Item -LiteralPath (Join-Path $repoRoot ('licenses\' + $name)) -Destination $licenses -Force }

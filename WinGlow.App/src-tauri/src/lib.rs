@@ -8,6 +8,7 @@ mod desktop_settings;
 mod explorer;
 mod font_engine;
 mod legacy;
+mod lively_rpc;
 mod menu;
 mod menu_diagnostics;
 mod menu_dictionary;
@@ -25,6 +26,7 @@ mod transaction;
 mod ui_fonts;
 mod visual;
 mod visual_diagnostics;
+mod window_layout;
 mod window_material;
 mod worker;
 
@@ -108,28 +110,29 @@ async fn restore_category(category: String) -> Result<ActionResult, String> {
 }
 #[tauri::command]
 async fn recover_pending() -> Result<ActionResult, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        let mut restored = None;
-        if optimization::state()?.1 {
-            restored = Some(optimization::restore_deferred()?);
-        }
-        if !transaction::pending_directories(&font_engine::backup_root()?)?.is_empty() {
-            restored = Some(worker::run_deferred(Operation::RestoreCategory {
-                category: "pending".into(),
-            })?);
-        }
-        let refresh = restored.is_some();
-        explorer::finish(
-            Ok(restored.unwrap_or(ActionResult {
-                message: "没有未完成的修改，状态已重新检查。".into(),
-            })),
-            refresh,
-            explorer::restart,
-        )
-    })
-    .await
-    .map_err(|error| error.to_string())?
-    .map_err(|error| format!("{error:#}"))
+    tauri::async_runtime::spawn_blocking(|| recover_pending_inner(true))
+        .await
+        .map_err(|error| error.to_string())?
+        .map_err(|error| format!("{error:#}"))
+}
+pub(crate) fn recover_pending_inner(allow_refresh: bool) -> anyhow::Result<ActionResult> {
+    let mut restored = None;
+    if optimization::state()?.1 {
+        restored = Some(optimization::restore_deferred()?);
+    }
+    if !transaction::pending_directories(&font_engine::backup_root()?)?.is_empty() {
+        restored = Some(worker::run_deferred(Operation::RestoreCategory {
+            category: "pending".into(),
+        })?);
+    }
+    let refresh = allow_refresh && restored.is_some();
+    explorer::finish(
+        Ok(restored.unwrap_or(ActionResult {
+            message: "没有未完成的修改，状态已重新检查。".into(),
+        })),
+        refresh,
+        explorer::restart,
+    )
 }
 
 #[tauri::command]
@@ -197,32 +200,31 @@ pub fn run() {
                 tauri::async_runtime::spawn(app_update::diagnose(app.handle().clone()));
                 return Ok(());
             }
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Err(error) = window_layout::fit(&window) {
+                        eprintln!("窗口尺寸适配未完成：{error}");
+                    }
+                    let current = window.clone();
+                    window.on_window_event(move |event| {
+                        if matches!(event, tauri::WindowEvent::ScaleFactorChanged { .. })
+                            && let Err(error) = window_layout::fit(&current)
+                        {
+                            eprintln!("窗口缩放适配未完成：{error}");
+                        }
+                    });
+                }
+            }
             explorer::watch_shell();
             std::thread::spawn(menu_dictionary::update_if_due);
             std::thread::spawn(|| {
-                let upgrade = optimization::update_on_startup();
-                optimization::finish_upgrade(&upgrade);
-                if let Err(error) = upgrade {
-                    eprintln!("升级后的优化方案尚未更新：{error:#}");
-                    return;
-                }
-                let result = (|| -> anyhow::Result<()> {
-                    let _guard = worker::optimization_lock()?;
-                    shell_engine::ensure_ready()?;
-                    if optimization::state()?.1 {
-                        return Ok(());
-                    }
-                    if breeze::enabled()? {
-                        let entries = archive_filter::plan()?;
-                        if !entries.is_empty() {
-                            shell_engine::commit("menu:sync-disabled-display", entries, || Ok(()))?;
-                        }
-                    }
-                    visual::sync()?;
-                    optional_tools::resume_lively_after_refresh()
-                })();
+                let result = optimization::update_on_startup()
+                    .and_then(|upgrade| resume_desktop_components().map(|_| upgrade));
+                // Keep mutation controls locked until runtime restoration completes too.
+                optimization::finish_upgrade(&result);
                 if let Err(error) = result {
-                    eprintln!("视觉组件恢复未完成：{error:#}");
+                    eprintln!("桌面初始化未完成：{error:#}");
                 }
             });
             app_update::check(app.handle().clone());
@@ -254,8 +256,6 @@ pub fn run() {
             wallpaper_control,
             load_desktop_settings,
             apply_taskbar_settings,
-            apply_classic_settings,
-            restore_classic_settings,
             select_wallpaper,
             set_wallpaper_volume,
             choose_wallpaper,
@@ -265,6 +265,29 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("启动 WinGlow失败");
+}
+
+fn resume_desktop_components() -> anyhow::Result<()> {
+    let _guard = worker::optimization_lock()?;
+    shell_engine::ensure_ready()?;
+    if optimization::state()?.0 {
+        font_engine::repair_ui_font_sizes()?;
+    }
+    ui_fonts::synchronize_desktop()?;
+    if optimization::state()?.1 {
+        return Ok(());
+    }
+    if breeze::enabled()? {
+        let entries = archive_filter::plan()?;
+        if !entries.is_empty() {
+            shell_engine::commit("menu:sync-disabled-display", entries, || Ok(()))?;
+        }
+        // The enabled preference can outlive an exited injector. Reuse our
+        // existing runtime or start it after synchronizing the stable rules.
+        breeze::sync()?;
+    }
+    visual::sync()?;
+    optional_tools::resume_lively_after_refresh()
 }
 
 #[tauri::command]
@@ -302,7 +325,6 @@ async fn wallpaper_control(action: String) -> Result<ActionResult, String> {
 #[serde(rename_all = "camelCase")]
 struct DesktopSettings {
     taskbar: desktop_settings::TaskbarSettings,
-    classic: desktop_settings::ClassicSettings,
     wallpaper: optional_tools::WallpaperLibrary,
 }
 #[tauri::command]
@@ -310,7 +332,6 @@ async fn load_desktop_settings() -> Result<DesktopSettings, String> {
     tauri::async_runtime::spawn_blocking(|| {
         Ok::<_, anyhow::Error>(DesktopSettings {
             taskbar: desktop_settings::taskbar_settings()?,
-            classic: desktop_settings::classic_settings()?,
             wallpaper: optional_tools::wallpaper_library()?,
         })
     })
@@ -329,24 +350,7 @@ async fn apply_taskbar_settings(
     .map_err(|e| e.to_string())?
     .map_err(|e| format!("{e:#}"))
 }
-#[tauri::command]
-async fn apply_classic_settings(
-    settings: desktop_settings::ClassicSettings,
-) -> Result<ActionResult, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        worker::run(Operation::ClassicSettings { settings })
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| format!("{e:#}"))
-}
-#[tauri::command]
-async fn restore_classic_settings() -> Result<ActionResult, String> {
-    tauri::async_runtime::spawn_blocking(move || worker::run(Operation::RestoreClassic))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("{e:#}"))
-}
+
 #[tauri::command]
 async fn select_wallpaper(id: String, minutes: u32) -> Result<ActionResult, String> {
     tauri::async_runtime::spawn_blocking(move || optional_tools::select_wallpaper(id, minutes))
@@ -368,11 +372,12 @@ fn optimization_upgrade_status() -> optimization::UpgradeStatus {
 #[tauri::command]
 async fn retry_optimization_upgrade() -> Result<ActionResult, String> {
     tauri::async_runtime::spawn_blocking(|| {
-        let result = optimization::update_if_due();
+        let result = optimization::update_if_due()
+            .and_then(|upgrade| resume_desktop_components().map(|_| upgrade));
         optimization::finish_upgrade(&result);
         result.map(|result| {
             result.unwrap_or(ActionResult {
-                message: "当前优化方案已是最新。".into(),
+                message: "桌面初始化已完成，当前优化方案已是最新。".into(),
             })
         })
     })

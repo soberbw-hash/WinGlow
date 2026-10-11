@@ -42,8 +42,7 @@ console.log("Multiple installed providers retain their basic folder action witho
 
 function visibilityListener(rules) {
   let callback;
-  const script = code.replace("/*WinGlowRules*/ { exact: [], patterns: [] }", JSON.stringify(rules));
-  vm.runInNewContext(script, { menu_controller: { add_menu_listener: fn => { callback = fn; } }, fs: { write() {} }, breeze: { data_directory: () => "." } });
+  vm.runInNewContext(code, { menu_controller: { add_menu_listener: fn => { callback = fn; } }, fs: { read: () => JSON.stringify(rules), write() {} }, breeze: { data_directory: () => "." } });
   return callback;
 }
 const off = visibilityListener({ exact: ["用 WorkBuddy 打开", "使用微信输入法隔空传送"], patterns: ["quark|夸克", "defender", "百度网盘", "^自动备份(?:该|此)?文件夹$"] });
@@ -64,6 +63,21 @@ const collisionMenu = menu(["Open Project\tP", "用 WorkBuddy 打开", "属性"]
 collision({ menu: collisionMenu });
 assert.ok(collisionMenu.items.every(item => !item.removed), "An enabled equivalent title must survive normalization and provider patterns");
 console.log("Enabled title protection covers casing, whitespace, accelerator labels and provider patterns.");
+
+let currentRules = { exact: ["用 WorkBuddy 打开"], patterns: [], enabled: [] }, dynamicListener;
+vm.runInNewContext(code, { menu_controller: { add_menu_listener: fn => { dynamicListener = fn; } }, fs: { read: () => JSON.stringify(currentRules), write() {} }, breeze: { data_directory: () => "." } });
+const dynamicOff = menu(["用 WorkBuddy 打开", "复制"]);
+dynamicListener({ menu: dynamicOff });
+assert.equal(dynamicOff.items[0].removed, true);
+currentRules = { exact: [], patterns: [], enabled: ["用 WorkBuddy 打开"] };
+const dynamicOn = menu(["用 WorkBuddy 打开", "复制"]);
+dynamicListener({ menu: dynamicOn });
+assert.equal(dynamicOn.items[0].removed, false, "Fresh data must apply without script or engine reload");
+currentRules = { exact: [], patterns: ["["], enabled: [] };
+const malformed = menu(["用 WorkBuddy 打开", "复制"]);
+dynamicListener({ menu: malformed });
+assert.ok(malformed.items.every(item => !item.removed), "Invalid rules must retain the last valid state");
+console.log("Rule changes apply on the next menu opening without reloading JavaScript; malformed data retains the previous valid state.");
 const requestedCleanup = visibilityListener({ exact: [], enabled: ['使用微信打开（手动保留）'], patterns: ['onedrive', '夸克|quark', '豆包|doubao', '图形处理器|graphicsprocessor|opengl', '微信|wechat|wetype', '隔空(?:投送|传送)|airdrop'] });
 const requestedItems = menu(['使用图形处理器运行', '更改 OpenGL 渲染 GPU', '豆包', '使用微信', '隔空投送', 'OneDrive', '上传到夸克网盘', '使用微信打开（手动保留）', '打开', '复制', '属性']);
 requestedCleanup({ menu: requestedItems });

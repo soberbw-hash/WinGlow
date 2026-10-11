@@ -40,6 +40,7 @@ pub enum Scope {
     TaskbarConfig,
     ClassicConfig,
     ArchiveFilter,
+    ArchiveFilterRules,
     VisualConfig,
 }
 
@@ -75,7 +76,7 @@ impl Scope {
             Self::WindowMetrics => r"Control Panel\Desktop\WindowMetrics".into(),
             Self::ClassicConfig => r"Software\ExplorerPatcher".into(),
             Self::TaskbarConfig => String::new(),
-            Self::ArchiveFilter => String::new(),
+            Self::ArchiveFilter | Self::ArchiveFilterRules => String::new(),
             Self::VisualConfig => String::new(),
             Self::LiveUiFonts => String::new(), // Virtual slot, handled through native APIs below.
         }
@@ -228,6 +229,7 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
         ),
         Scope::TaskbarConfig => slot.name == "settings.json",
         Scope::ArchiveFilter => slot.name == "WinGlow-ArchiveFilter.js",
+        Scope::ArchiveFilterRules => slot.name == "WinGlow-MenuRules.json",
         Scope::VisualConfig => crate::visual::CONFIG_NAMES.contains(&slot.name.as_str()),
         Scope::MenuVerb { path, .. } => {
             crate::menu::valid_verb_path(path) && slot.name == "LegacyDisable"
@@ -298,6 +300,9 @@ impl ValueStore for WindowsRegistry {
         if slot.scope == Scope::ArchiveFilter {
             return crate::archive_filter::read();
         }
+        if slot.scope == Scope::ArchiveFilterRules {
+            return crate::archive_filter::read_rules();
+        }
         if slot.scope == Scope::TaskbarConfig {
             return crate::taskbar::read_config();
         }
@@ -329,6 +334,9 @@ impl ValueStore for WindowsRegistry {
         }
         if entry.slot.scope == Scope::ArchiveFilter {
             return crate::archive_filter::write(entry.value.as_ref());
+        }
+        if entry.slot.scope == Scope::ArchiveFilterRules {
+            return crate::archive_filter::write_rules(entry.value.as_ref());
         }
         if entry.slot.scope == Scope::TaskbarConfig {
             return crate::taskbar::write_config(entry.value.as_ref());

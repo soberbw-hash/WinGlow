@@ -708,6 +708,27 @@ fn unique_entries(entries: Vec<Entry>) -> Vec<Entry> {
         .collect()
 }
 
+pub fn repair_ui_font_sizes() -> Result<ActionResult> {
+    let desired = crate::ui_fonts::readability_plan()?;
+    if desired.is_empty() {
+        crate::ui_fonts::refresh()?;
+        return Ok(ActionResult {
+            message: "界面字号已正常，已通知桌面刷新字体。".into(),
+        });
+    }
+    transaction::execute(
+        &mut WindowsRegistry,
+        &new_backup_dir()?,
+        "font-size-repair",
+        desired,
+        || Ok(()),
+    )?;
+    notify();
+    crate::ui_fonts::verify_desktop_font()?;
+    Ok(ActionResult {
+        message: "已备份并修复过小的界面字号，保留字体、字重和已有较大字号。".into(),
+    })
+}
 pub fn apply_with_extra(
     preset_id: &str,
     extra: Vec<Entry>,
@@ -722,7 +743,11 @@ pub fn apply_with_extra(
     };
     let mut desired = plan(preset, &records)?;
     desired.extend(extra);
-    desired.extend(crate::ui_fonts::plan(preset.family, preset.heavier)?);
+    desired.extend(if operation.starts_with("optimize:") {
+        crate::ui_fonts::optimization_plan(preset.family, preset.heavier)?
+    } else {
+        crate::ui_fonts::plan(preset.family, preset.heavier)?
+    });
     let mut added = Vec::new();
     let result = transaction::execute(&mut store, &new_backup_dir()?, operation, desired, || {
         added = activate(&records)?;

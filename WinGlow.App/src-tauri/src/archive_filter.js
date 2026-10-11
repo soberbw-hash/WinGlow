@@ -1,12 +1,24 @@
 import { menu_controller, fs, breeze } from "mshell";
 
-// Rebuilt from OFF switches in the same transaction as the registry changes.
-const hiddenRules = /*WinGlowRules*/ { exact: [], patterns: [] };
+// Read data on each menu opening. Changing a switch must not reset Breeze's
+// QuickJS runtime and invalidate callbacks still owned by an open menu.
+let hiddenRules = { exact: [], patterns: [], enabled: [] };
 const normalize = value => String(value ?? "").split("\t")[0].replace(/\([&＆][^)]*\)|[&＆]|[.。…\s]/g, "").toLowerCase();
-const enabledNames = new Set((hiddenRules.enabled ?? []).map(normalize));
-const hiddenNames = new Set(hiddenRules.exact.map(normalize));
-const hiddenPatterns = hiddenRules.patterns.map(pattern => new RegExp(pattern, "i"));
-function hideDisabled(menu) {
+function readRules() {
+  try {
+    const text = fs.read(breeze.data_directory() + "/WinGlow-MenuRules.json");
+    if (text.length > 65536) return hiddenRules;
+    const rules = JSON.parse(text);
+    if (![rules.exact, rules.patterns, rules.enabled ?? []].every(values => Array.isArray(values) && values.every(value => typeof value === "string"))) return hiddenRules;
+    for (const pattern of rules.patterns) new RegExp(pattern, "i");
+    hiddenRules = rules;
+  } catch {}
+  return hiddenRules;
+}
+function hideDisabled(menu, rules) {
+  const enabledNames = new Set((rules.enabled ?? []).map(normalize));
+  const hiddenNames = new Set(rules.exact.map(normalize));
+  const hiddenPatterns = rules.patterns.map(pattern => new RegExp(pattern, "i"));
   for (const item of menu.items) {
     const data = item.data();
     const names = [data.name, data.origin_name].map(normalize);
@@ -14,7 +26,7 @@ function hideDisabled(menu) {
       item.remove();
     } else if (typeof data.submenu === "function") {
       const original = data.submenu;
-      item.update_data({ submenu: child => { original(child); hideDisabled(child); } });
+      item.update_data({ submenu: child => { original(child); hideDisabled(child, rules); } });
     }
   }
 }
@@ -49,7 +61,7 @@ export function compactArchiveMenu(menu) {
 }
 menu_controller.add_menu_listener(e => {
   const before = e.menu.items.map(item => item.data().name);
-  hideDisabled(e.menu);
+  hideDisabled(e.menu, readRules());
   compactArchiveMenu(e.menu);
   // One bounded diagnostic snapshot of the actual rendered menu, no file paths.
   try { fs.write(breeze.data_directory() + "/WinGlow-last-menu.json", JSON.stringify({ before, after: e.menu.items.map(item => item.data().name) })); } catch {}

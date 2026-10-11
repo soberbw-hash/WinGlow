@@ -36,11 +36,8 @@ use windows::{
 pub fn needed(operation: &Operation) -> bool {
     matches!(
         operation,
-        Operation::Apply { .. }
-            | Operation::Restore { .. }
-            | Operation::Menu { .. }
-            | Operation::OptimizeMenu
-    ) || matches!(operation, Operation::RestoreCategory { category } if matches!(category.as_str(), "all-last" | "details" | "menu" | "pending"))
+        Operation::Apply { .. } | Operation::Restore { .. }
+    ) || matches!(operation, Operation::RestoreCategory { category } if matches!(category.as_str(), "all-last" | "details" | "pending"))
         || matches!(operation, Operation::Toggle { id, .. } if id == "file-extensions")
 }
 
@@ -335,6 +332,7 @@ fn finish_runtime(refresh: Result<()>, recover: impl FnOnce() -> Result<()>) -> 
     }
 }
 fn recover_effects() -> Result<()> {
+    let fonts = crate::ui_fonts::synchronize_desktop();
     let taskbar = (|| {
         if crate::taskbar::enabled()? {
             // Rebind the owned hooks to the replacement Explorer, retaining exact config.
@@ -349,68 +347,18 @@ fn recover_effects() -> Result<()> {
         Ok(())
     })();
     let visual = crate::visual::sync();
-    finish_runtime(finish_runtime(taskbar, || breeze), || visual)
-}
-/// Protect effects around installers which restart Explorer themselves. Never
-/// restart Explorer again after installation; wait for its own refresh to settle.
-pub(crate) fn external_refresh(
-    operation: impl FnOnce() -> Result<ActionResult>,
-) -> Result<ActionResult> {
-    let before_pid = shell_pid();
-    let wallpaper = crate::optional_tools::WallpaperRefresh::capture()?;
-    crate::taskbar::preflight()?;
-    let taskbar_running = crate::taskbar::running()?;
-    let breeze_running = crate::breeze::running()?;
-    if breeze_running {
-        crate::breeze::prepare()?;
-    }
-    let result = (|| {
-        wallpaper.pause()?;
-        crate::taskbar::pause_owned()?;
-        crate::breeze::pause_owned()?;
-        operation()
-    })();
-    if shell_pid() != before_pid {
-        let _ = record_refresh();
-    }
-    let recovery = finish_runtime(
-        wait_for_taskbar().and_then(|()| {
-            let taskbar = if taskbar_running {
-                crate::taskbar::resume_runtime()
-            } else {
-                Ok(())
-            };
-            let breeze = if breeze_running {
-                crate::breeze::resume_runtime()
-            } else {
-                Ok(())
-            };
-            finish_runtime(finish_runtime(taskbar, || breeze), crate::visual::sync)
-        }),
-        crate::optional_tools::resume_lively_after_refresh,
-    );
-    OBSERVED_SHELL.store(
-        if recovery.is_ok() {
-            shell_pid().unwrap_or(0)
-        } else {
-            0
-        },
-        std::sync::atomic::Ordering::Relaxed,
-    );
-    match (result, recovery) {
-        (Ok(mut result), Err(error)) => {
-            result
-                .message
-                .push_str(&format!(" 桌面效果恢复未完成：{error:#}"));
-            Ok(result)
-        }
-        (Err(error), Err(recovery)) => {
-            Err(error.context(format!("桌面效果恢复未完成：{recovery:#}")))
-        }
-        (result, _) => result,
-    }
+    finish_runtime(
+        finish_runtime(finish_runtime(fonts, || taskbar), || breeze),
+        || visual,
+    )
 }
 pub fn restart() -> Result<()> {
+    restart_with_wallpaper(false)
+}
+pub(crate) fn restart_for_optimization() -> Result<()> {
+    restart_with_wallpaper(true)
+}
+fn restart_with_wallpaper(defer_wallpaper: bool) -> Result<()> {
     let now = unsafe { GetTickCount64() };
     let last = std::fs::read_to_string(refresh_stamp()?)
         .ok()
@@ -433,10 +381,13 @@ pub fn restart() -> Result<()> {
             restart_shell()
         },
         || {
-            finish_runtime(
-                wait_for_taskbar().and_then(|()| recover_effects()),
-                crate::optional_tools::resume_lively_after_refresh,
-            )
+            finish_runtime(wait_for_taskbar().and_then(|()| recover_effects()), || {
+                if defer_wallpaper {
+                    Ok(())
+                } else {
+                    crate::optional_tools::resume_lively_after_refresh()
+                }
+            })
         },
     );
     if result.is_ok() {
@@ -483,10 +434,13 @@ pub fn watch_shell() {
             }
             // External Explorer restarts also need a fresh runtime: stop before
             // waiting so another rapid shell restart cannot reach its old hooks.
-            let recovery = crate::taskbar::pause_owned().and_then(|()| {
+            let effects = crate::taskbar::pause_owned().and_then(|()| {
                 wait_for_taskbar()?;
                 recover_effects()
             });
+            // A failed effect must not strand a wallpaper paused by our refresh.
+            let recovery =
+                finish_runtime(effects, crate::optional_tools::resume_lively_after_refresh);
             match recovery {
                 Ok(()) => {
                     OBSERVED_SHELL.store(
@@ -509,6 +463,34 @@ pub fn watch_shell() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_changes_and_restore_never_restart_the_desktop() {
+        for operation in [
+            Operation::OptimizeMenu,
+            Operation::Menu {
+                id: "test".into(),
+                enabled: false,
+            },
+            Operation::Menu {
+                id: "test".into(),
+                enabled: true,
+            },
+            Operation::RestoreCategory {
+                category: "menu".into(),
+            },
+        ] {
+            assert!(!needed(&operation));
+            finish(
+                Ok(ActionResult {
+                    message: "已保存。".into(),
+                }),
+                needed(&operation),
+                || panic!("menu operations must leave the desktop and wallpaper alive"),
+            )
+            .unwrap();
+        }
+    }
 
     #[test]
     fn rapid_refresh_is_deferred_without_reporting_a_failed_write() {

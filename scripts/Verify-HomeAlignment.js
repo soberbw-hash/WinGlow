@@ -5,6 +5,7 @@ async (page) => {
     const active = location.search.includes('optimized');
     window.__TAURI_EVENT_PLUGIN_INTERNALS__ = {unregisterListener:()=>{}}; window.__TAURI_INTERNALS__ = {metadata:{currentWindow:{label:"main"},currentWebview:{label:"main"}},transformCallback:()=>1,unregisterCallback:()=>{}, invoke: async command => {
       if (command === 'optimization_upgrade_status') return {running:false,finished:true,message:'',error:false};
+      if (command === 'load_desktop_settings') return {taskbar:{desktop:{accent:'blur',color:'#000000',opacity:0,showLine:true},maximized:null,startOpen:null},classic:{taskbar:0,alignment:1,combine:0,smallIcons:false,startMenu:0},wallpaper:{items:[],selected:'',intervalMinutes:5,volume:0,canRestore:false}};
       if (command.startsWith('plugin:event|')) return 1;
       if (command === 'load_bootstrap') return { presets: [], activePresetId: null, activeFontLabel: 'Windows 默认', currentPreviewFamily: 'sans-serif', currentPreviewWeight: 400, needsFontRefresh: false, backupDir: '', canRestore: false, pendingRecovery: null };
       if (command === 'load_shell') return { items: [], tweaks: [], optionalTools: [], appearance: { material: 3, tint: 20, radius: 10 }, taskbarSupported: true, startMenuSupported: true, windowMaterialSupported: true, optimizationActive: active, optimizationPending: false, pendingRecovery: false };
@@ -14,7 +15,7 @@ async (page) => {
   });
   const results = [];
   const cases = [
-    ...[[1080,740],[760,600]].map(([width,height]) => ({width,height,label:'window'})),
+    ...[[1080,740],[760,600],[853,432]].map(([width,height]) => ({width,height,label:'window'})),
     ...[[2560,1440],[3840,2160]].flatMap(([pixelsX,pixelsY]) =>
       [1,1.25,1.5,1.75,2,2.25,2.5,3].map(scale => ({
         width:Math.round(pixelsX/scale), height:Math.round(pixelsY/scale),

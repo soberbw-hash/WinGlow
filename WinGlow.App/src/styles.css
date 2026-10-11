@@ -230,7 +230,6 @@ input, select, textarea { font-family: inherit; }
 .compact-color input { height:36px; padding:2px; border:1px solid var(--brand-line); border-radius:6px; }
 .taskbar-context { margin:14px 0; }
 .taskbar-context > .desktop-control-row { margin-top:10px; }
-.classic-settings { width:100%; }
 .control-note { font-size:13px; color:var(--color-slate-500); margin:8px 0 16px; text-wrap:pretty; }
 .wallpaper-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; margin-bottom:20px; padding:3px; }
 .wallpaper-card { background:white; border:1px solid var(--brand-line); border-radius:10px; overflow:hidden; padding:0; text-align:left; color:var(--color-slate-700); min-width:0; }

@@ -1,4 +1,4 @@
-use crate::registry::{Entry, Slot, StoredValue, validate_entries};
+use crate::registry::{Entry, Scope, Slot, StoredValue, validate_entries};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -64,8 +64,19 @@ fn write_and_verify(store: &mut impl ValueStore, entries: &[Entry]) -> Result<()
         store.write(entry)?;
     }
     for entry in entries {
-        if store.read(&entry.slot)? != entry.value {
-            bail!("写入后的字体值与计划不一致：{}。", entry.slot.name);
+        let actual = store.read(&entry.slot)?;
+        let matches = match (
+            entry.slot.scope == Scope::LiveUiFonts,
+            &actual,
+            &entry.value,
+        ) {
+            (true, Some(actual), Some(expected)) => {
+                crate::ui_fonts::matches_readback(actual, expected)?
+            }
+            _ => actual == entry.value,
+        };
+        if !matches {
+            bail!("写入后的设置与计划不一致：{}。", entry.slot.name);
         }
     }
     Ok(())

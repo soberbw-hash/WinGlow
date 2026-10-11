@@ -59,14 +59,36 @@ fn lock_named(mutex_name: &str) -> Result<OperationLock> {
 pub fn replace_file(source: &Path, target: &Path) -> Result<()> {
     let a = wide(source);
     let b = wide(target);
-    unsafe {
-        MoveFileExW(
-            PCWSTR(a.as_ptr()),
-            PCWSTR(b.as_ptr()),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
+    // Readers (including Breeze hot reload and virus scanners) can briefly
+    // open the destination without FILE_SHARE_DELETE. Preserve atomic replace
+    // and the transaction; do not delete the old file or weaken its ACL.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(750);
+    loop {
+        let result = unsafe {
+            MoveFileExW(
+                PCWSTR(a.as_ptr()),
+                PCWSTR(b.as_ptr()),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        };
+        match result {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if replace_retryable(error.code()) && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("保存设置文件失败：{}。", target.display()));
+            }
+        }
     }
-    .context("保存字体记录失败。")
+}
+fn replace_retryable(code: windows::core::HRESULT) -> bool {
+    [5, 32, 33]
+        .into_iter()
+        .any(|error| code == windows::core::HRESULT::from_win32(error))
 }
 
 fn launch_directory(executable: &Path) -> Result<&Path> {
@@ -196,14 +218,10 @@ fn run_with_refresh(operation: Operation, allow_refresh: bool) -> Result<ActionR
 
 pub(crate) fn run_inner(operation: Operation) -> Result<ActionResult> {
     let needs_admin = match &operation {
-        Operation::OptionalTool { id, verb } => {
-            id == "explorer-patcher" && matches!(verb.as_str(), "install" | "remove")
-        }
+        Operation::OptionalTool { .. } => false,
         Operation::Toggle { .. }
         | Operation::Appearance { .. }
-        | Operation::TaskbarSettings { .. }
-        | Operation::ClassicSettings { .. }
-        | Operation::RestoreClassic => false,
+        | Operation::TaskbarSettings { .. } => false,
         Operation::Menu { id, .. } => crate::menu::needs_admin(id)?,
         Operation::RestoreCategory { category } => {
             matches!(category.as_str(), "menu" | "all-last" | "pending")
@@ -291,8 +309,6 @@ fn dispatch(operation: Operation) -> Result<ActionResult> {
         Operation::RollbackUpgrade { token } => crate::optimization::rollback_upgrade_core(&token),
         Operation::OptimizeMenu => crate::optimization::menu_only(),
         Operation::TaskbarSettings { settings } => crate::desktop_settings::apply_taskbar(settings),
-        Operation::ClassicSettings { settings } => crate::desktop_settings::apply_classic(settings),
-        Operation::RestoreClassic => crate::desktop_settings::restore_classic(),
         Operation::Repair => crate::repair::run(),
         font_operation => font_engine::perform(font_operation),
     }
@@ -318,6 +334,12 @@ fn show_message(text: &str, error: bool) {
 
 pub fn handle_cli() -> bool {
     let args: Vec<_> = env::args().collect();
+    if args.iter().any(|a| a == "--wallpaper-host") {
+        if let Err(error) = crate::optional_tools::carousel_host() {
+            eprintln!("壁纸轮播未完成：{error:#}");
+        }
+        return true;
+    }
     if let Some(index) = args.iter().position(|a| a == "--verify-worker-child") {
         let result = (|| -> Result<()> {
             if !unsafe { IsUserAnAdmin().as_bool() } {
@@ -483,6 +505,62 @@ pub fn handle_cli() -> bool {
         };
         return true;
     }
+    if args.iter().any(|a| a == "--diagnose-wallpaper-rpc") {
+        // Empty automation arguments exercise dispatch/acknowledgement without
+        // changing wallpaper selection, sound, runtime state or the desktop.
+        let report = match crate::lively_rpc::command(&[]) {
+            Ok(()) => serde_json::json!({"success":true,"message":"壁纸控制接口已确认请求。"}),
+            Err(error) => serde_json::json!({"success":false,"error":format!("{error:#}")}),
+        };
+        println!("{report}");
+        return true;
+    }
+    if args.iter().any(|a| a == "--repair-ui-font-sizes") {
+        let report = (|| -> Result<ActionResult> {
+            let _guard = optimization_lock()?;
+            crate::shell_engine::ensure_ready()?;
+            font_engine::repair_ui_font_sizes()
+        })();
+        let value = match report {
+            Ok(result) => serde_json::json!({"success":true,"message":result.message}),
+            Err(error) => serde_json::json!({"success":false,"error":format!("{error:#}")}),
+        };
+        if let Ok(root) = font_engine::data_root() {
+            let _ = fs::write(root.join("font-size-repair-result.json"), value.to_string());
+        }
+        println!("{value}");
+        return true;
+    }
+    if args.iter().any(|a| a == "--apply-one-click") {
+        let outcome =
+            crate::desktop_access::ensure_compatible().and_then(|()| crate::optimization::apply());
+        let report = match outcome {
+            Ok(result) => serde_json::json!({"success":true,"message":result.message}),
+            Err(error) => serde_json::json!({"success":false,"error":format!("{error:#}")}),
+        };
+        if let Ok(root) = font_engine::data_root() {
+            let _ = fs::write(
+                root.join("one-click-application-result.json"),
+                report.to_string(),
+            );
+        }
+        println!("{report}");
+        return true;
+    }
+    if args.iter().any(|a| a == "--recover-pending-no-refresh") {
+        let report = match crate::recover_pending_inner(false) {
+            Ok(result) => serde_json::json!({"success":true,"message":result.message}),
+            Err(error) => serde_json::json!({"success":false,"error":format!("{error:#}")}),
+        };
+        if let Ok(root) = font_engine::data_root() {
+            let _ = fs::write(
+                root.join("pending-recovery-result.json"),
+                report.to_string(),
+            );
+        }
+        println!("{report}");
+        return true;
+    }
     if args.iter().any(|a| a == "--diagnose-desktop") {
         match crate::desktop::flags() {
             Ok(flags) => println!("Desktop folder flags: {flags:#x}"),
@@ -514,6 +592,34 @@ pub fn handle_cli() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atomic_replace_waits_for_a_short_lived_reader_without_losing_old_data() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let root = env::temp_dir().join(format!("WinGlow-file-reader-{}", uuid::Uuid::new_v4()));
+        fs::create_dir(&root).unwrap();
+        let target = root.join("config.js");
+        let source = root.join("config.tmp");
+        fs::write(&target, b"original").unwrap();
+        fs::write(&source, b"updated").unwrap();
+        let reader = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1)
+            .open(&target)
+            .unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(150));
+            drop(reader);
+        });
+        replace_file(&source, &target).unwrap();
+        release.join().unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"updated");
+        assert!(!source.exists());
+        fs::remove_file(target).unwrap();
+        fs::remove_dir(root).unwrap();
+        assert!(replace_retryable(windows::core::HRESULT::from_win32(32)));
+        assert!(!replace_retryable(windows::core::HRESULT::from_win32(3)));
+    }
 
     #[test]
     fn shell_launch_uses_existing_executable_directory_with_unicode_and_spaces() {

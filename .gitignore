@@ -19,3 +19,6 @@ third_party/
 /norm*.nlp
 /zh-Hans/
 .playwright-cli/
+/output/playwright/
+__pycache__/
+*.pyc

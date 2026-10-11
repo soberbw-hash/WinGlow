@@ -261,7 +261,52 @@ pub fn toggle(id: &str, enabled: bool) -> Result<ActionResult> {
 pub fn toggle_menu(id: &str, enabled: bool) -> Result<ActionResult> {
     let mut entries = menu::resolve(id, enabled)?;
     entries.extend(crate::archive_filter::plan_with(&entries)?);
+    let entries = entries
+        .into_iter()
+        .map(|entry| Ok((WindowsRegistry.read(&entry.slot)? != entry.value).then_some(entry)))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    if entries.is_empty() {
+        return Ok(ActionResult {
+            message: "菜单设置未改变。".into(),
+        });
+    }
     commit("menu:toggle", entries, || Ok(()))
+}
+
+fn belongs_to_category(slot: &Slot, category: &str) -> bool {
+    match (&slot.scope, category) {
+        (Scope::Startup, "menu") => matches!(
+            slot.name.as_str(),
+            "WinGlow-Breeze" | "WindowsWeitiao-Breeze"
+        ),
+        (Scope::Startup, "details") => matches!(
+            slot.name.as_str(),
+            "WinGlow-TranslucentTB" | "WinGlow-StartMenu" | "WinGlow-WindowMaterial"
+        ),
+        (scope, "menu") => matches!(
+            scope,
+            Scope::MenuVerb { .. }
+                | Scope::MenuHandler { .. }
+                | Scope::CommandStoreVerb { .. }
+                | Scope::BlockedExtensions
+                | Scope::MachineBlockedExtensions
+                | Scope::ArchiveFilter
+                | Scope::ArchiveFilterRules
+        ),
+        (scope, "details") => matches!(
+            scope,
+            Scope::Explorer
+                | Scope::IconOverrides
+                | Scope::DesktopView
+                | Scope::TaskbarConfig
+                | Scope::ClassicConfig
+                | Scope::VisualConfig
+        ),
+        _ => false,
+    }
 }
 pub fn restore(category: &str) -> Result<ActionResult> {
     if !matches!(category, "menu" | "details") {
@@ -274,42 +319,7 @@ pub fn restore(category: &str) -> Result<ActionResult> {
         }
         let j = transaction::read_journal(&dir)?;
         for entry in j.before {
-            let belongs = match category {
-                "menu" => matches!(
-                    entry.slot.scope,
-                    Scope::MenuVerb { .. }
-                        | Scope::MenuHandler { .. }
-                        | Scope::CommandStoreVerb { .. }
-                        | Scope::BlockedExtensions
-                        | Scope::MachineBlockedExtensions
-                        | Scope::Startup
-                        | Scope::ArchiveFilter
-                ),
-                _ => matches!(
-                    entry.slot.scope,
-                    Scope::Explorer
-                        | Scope::IconOverrides
-                        | Scope::DesktopView
-                        | Scope::TaskbarConfig
-                        | Scope::ClassicConfig
-                        | Scope::VisualConfig
-                ),
-            };
-            let belongs = belongs
-                && !(category == "menu"
-                    && entry.slot.scope == Scope::Startup
-                    && matches!(
-                        entry.slot.name.as_str(),
-                        "WinGlow-TranslucentTB" | "WinGlow-StartMenu" | "WinGlow-WindowMaterial"
-                    ));
-            let belongs = belongs
-                || category == "details"
-                    && entry.slot.scope == Scope::Startup
-                    && matches!(
-                        entry.slot.name.as_str(),
-                        "WinGlow-TranslucentTB" | "WinGlow-StartMenu" | "WinGlow-WindowMaterial"
-                    );
-            if belongs && !slots.contains(&entry.slot) {
+            if belongs_to_category(&entry.slot, category) && !slots.contains(&entry.slot) {
                 slots.push(entry.slot);
             }
         }
@@ -478,4 +488,41 @@ fn preserve_view_bits(entries: &mut [Entry]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn menu_restore_cannot_touch_other_features_startup() {
+        for name in [
+            "WinGlow-Lively",
+            "WinGlow-TranslucentTB",
+            "WinGlow-StartMenu",
+            "WinGlow-WindowMaterial",
+        ] {
+            assert!(!belongs_to_category(
+                &registry::slot(Scope::Startup, name),
+                "menu"
+            ));
+        }
+        for name in ["WinGlow-Breeze", "WindowsWeitiao-Breeze"] {
+            let slot = registry::slot(Scope::Startup, name);
+            assert!(belongs_to_category(&slot, "menu"));
+            assert!(!belongs_to_category(&slot, "details"));
+        }
+        assert!(!belongs_to_category(
+            &registry::slot(Scope::Startup, "WinGlow-Lively"),
+            "details"
+        ));
+        assert!(belongs_to_category(
+            &registry::slot(Scope::ArchiveFilter, "script"),
+            "menu"
+        ));
+        assert!(!belongs_to_category(
+            &registry::slot(Scope::WindowMetrics, "IconFont"),
+            "menu"
+        ));
+    }
 }

@@ -73,10 +73,7 @@ pub enum Operation {
     TaskbarSettings {
         settings: crate::desktop_settings::TaskbarSettings,
     },
-    ClassicSettings {
-        settings: crate::desktop_settings::ClassicSettings,
-    },
-    RestoreClassic,
+
     Repair,
 }
 

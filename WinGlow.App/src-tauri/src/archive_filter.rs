@@ -7,14 +7,28 @@ fn path() -> Result<PathBuf> {
         .join(".breeze-shell/scripts/WinGlow-ArchiveFilter.js"))
 }
 pub fn read() -> Result<Option<StoredValue>> {
-    match fs::read(path()?) {
+    read_at(path()?)
+}
+fn rules_path() -> Result<PathBuf> {
+    Ok(PathBuf::from(std::env::var("USERPROFILE")?).join(".breeze-shell/WinGlow-MenuRules.json"))
+}
+pub fn read_rules() -> Result<Option<StoredValue>> {
+    read_at(rules_path()?)
+}
+fn read_at(path: PathBuf) -> Result<Option<StoredValue>> {
+    match fs::read(path) {
         Ok(bytes) => Ok(Some(StoredValue { kind: 3, bytes })),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.into()),
     }
 }
 pub fn write(value: Option<&StoredValue>) -> Result<()> {
-    let path = path()?;
+    write_at(path()?, value)
+}
+pub fn write_rules(value: Option<&StoredValue>) -> Result<()> {
+    write_at(rules_path()?, value)
+}
+fn write_at(path: PathBuf, value: Option<&StoredValue>) -> Result<()> {
     if let Some(value) = value {
         if value.kind != 3 || value.bytes.len() > 65536 {
             bail!("菜单过滤快照无效。");
@@ -38,24 +52,35 @@ pub fn plan() -> Result<Vec<Entry>> {
 pub fn plan_with(changes: &[Entry]) -> Result<Vec<Entry>> {
     let items = crate::menu::scan_impl(false)?;
     let rules = display_rules(items, changes);
-    let script = String::from_utf8(SCRIPT.to_vec())?.replace(
-        "/*WinGlowRules*/ { exact: [], patterns: [] }",
-        &serde_json::to_string(&rules)?,
-    );
-    let value = StoredValue {
-        kind: 3,
-        bytes: script.into_bytes(),
-    };
-    if value.bytes.len() > 65536 {
-        bail!("菜单过滤规则超过备份上限，未修改。");
+    // Stable executable code: routine switches replace only this JSON. Breeze
+    // resets its JS runtime when a .js file changes, inside Explorer itself.
+    let mut entries = Vec::new();
+    for (scope, name, current, bytes) in [
+        (
+            Scope::ArchiveFilterRules,
+            "WinGlow-MenuRules.json",
+            read_rules()?,
+            serde_json::to_vec(&rules)?,
+        ),
+        (
+            Scope::ArchiveFilter,
+            "WinGlow-ArchiveFilter.js",
+            read()?,
+            SCRIPT.to_vec(),
+        ),
+    ] {
+        if bytes.len() > 65536 {
+            bail!("菜单过滤规则超过备份上限，未修改。");
+        }
+        let value = StoredValue { kind: 3, bytes };
+        if current.as_ref() != Some(&value) {
+            entries.push(Entry {
+                slot: crate::registry::slot(scope, name),
+                value: Some(value),
+            });
+        }
     }
-    if read()?.as_ref() == Some(&value) {
-        return Ok(vec![]);
-    }
-    Ok(vec![Entry {
-        slot: crate::registry::slot(Scope::ArchiveFilter, "WinGlow-ArchiveFilter.js"),
-        value: Some(value),
-    }])
+    Ok(entries)
 }
 fn display_rules(
     items: Vec<(crate::models::MenuItem, crate::registry::Slot)>,

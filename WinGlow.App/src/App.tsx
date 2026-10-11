@@ -6,7 +6,7 @@ import { Sparkles, Type, MousePointer2, PanelsTopLeft, RotateCcw, Minus, Square,
 import { MenuManager } from "./components/MenuManager";
 import { AppUpdates } from "./components/AppUpdates";
 import { VisualSettings } from "./components/VisualSettings";
-import { TaskbarControls, WallpaperControls, ClassicControls } from "./components/DesktopSettings";
+import { TaskbarControls, WallpaperControls } from "./components/DesktopSettings";
 import appIcon from "./assets/app-icon.png";
 import { cn } from "./lib/cn";
 import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, optimizeSystem, optimizeMenu, optionalTool, loadDesktopSettings, optimizationUpgradeStatus, retryOptimizationUpgrade, refreshMenuDictionary } from "./lib/tauri";
@@ -52,6 +52,8 @@ export default function App() {
   const [upgradeError, setUpgradeError] = useState(false);
   const reloadSequence = useRef(0);
   const mutationRunning = useRef(false);
+  const upgradePolling = useRef(false);
+  const repairPolling = useRef(false);
   const [loading, setLoading] = useState(true);
   const [repairing, setRepairing] = useState(false);
   const [repairStage, setRepairStage] = useState("");
@@ -77,6 +79,8 @@ export default function App() {
     if (!desktop) return;
     let live = true;
     const poll = async () => {
+      if (!live || upgradePolling.current) return;
+      upgradePolling.current = true;
       try {
         const status = await optimizationUpgradeStatus();
         if (!live) return;
@@ -86,7 +90,8 @@ export default function App() {
           setUpgradeError(status.error);
           if (status.message) { setNotice({text:status.message,error:status.error}); await reload(); }
         }
-      } catch { if (live) setUpgrading(false); window.clearInterval(timer); }
+      } catch { /* Retry transient IPC failures; never unlock a running mutation. */ }
+      finally { upgradePolling.current = false; }
     };
     const timer = window.setInterval(() => void poll(), 1000);
     void poll();
@@ -104,7 +109,14 @@ export default function App() {
   useEffect(() => {
     if (!repairing || !desktop) return;
     let live = true;
-    const timer = window.setInterval(() => { void repairProgress().then(p => { if (live && p.stage) setRepairStage(p.stage); }).catch(() => {}); }, 1000);
+    const poll = async () => {
+      if (!live || repairPolling.current) return;
+      repairPolling.current = true;
+      try { const progress = await repairProgress(); if (live && progress.stage) setRepairStage(progress.stage); }
+      catch { /* Retry while the repair operation remains active. */ }
+      finally { repairPolling.current = false; }
+    };
+    const timer = window.setInterval(() => void poll(), 1000);
     return () => { live = false; window.clearInterval(timer); };
   }, [repairing, desktop]);
   const selected = bootstrap?.presets.find(p => p.id === selectedId);
@@ -142,7 +154,7 @@ export default function App() {
       <div className="sidebar-bottom"><button className={cn("nav-item", page === "settings" && "active")} aria-current={page === "settings" ? "page" : undefined} onClick={() => navigate("settings")}><RotateCcw size={18} /><span>设置与还原</span></button></div>
     </aside><main className={cn("main-content", page === "menu" && "menu-page", page === "home" && "home-main")} aria-busy={loading || busy}>
       {page === "home" ? <section className="home-page" aria-label="一键优化">
-        <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观</h1><p>舒适的字体、清爽的菜单、柔和的桌面与动态壁纸</p></div>
+        <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观</h1><p>一键调整字体、菜单与桌面效果，修改前自动备份</p></div>
         {!shell && !loading && <button className="button secondary" onClick={() => void reload()}>重新读取</button>}
         <div className="home-actions"><button className="button primary optimize-button" disabled={blocked || !shell || shell.optimizationActive} title="首次使用需联网准备美化组件和动态壁纸。完成后自动刷新资源管理器，文件窗口可能关闭。" onClick={() => void mutate(() => optimizeSystem())}><Sparkles size={20} />{busy ? "正在处理…" : shell?.optimizationActive && !shell.optimizationPending ? "已优化" : "一键优化"}</button>
           {shell?.optimizationActive && !shell.optimizationPending && <button className="button secondary home-restore" disabled={!desktop || busy || loading || upgrading} onClick={() => void mutate(() => optimizeSystem(true))}><RotateCcw size={20} />撤销优化</button>}
@@ -167,16 +179,13 @@ export default function App() {
           <div className="settings-list">
             {shell.tweaks.map(tweak => <div className="setting-row" key={tweak.id}><div><h2>{tweak.label}</h2>{tweak.note && <p>{tweak.note}</p>}</div><Switch label={tweak.label} checked={tweak.enabled} disabled={blocked} onChange={value => void mutate(() => setTweak(tweak.id, value))} /></div>)}
           </div>
-          <section className="optional-section" aria-labelledby="optional-heading"><h2 id="optional-heading">桌面与布局</h2>
+          <section className="optional-section" aria-labelledby="optional-heading"><h2 id="optional-heading">动态壁纸</h2>
             {shell.optionalTools.map(tool => <div className="setting-row optional-row" key={tool.id}>
               <div><h3>{tool.label}</h3><p>{tool.note}</p></div>
               <div className="optional-actions">
-                {!tool.installed && <button className="button secondary" disabled={blocked || !tool.supported} onClick={() => void mutate(() => optionalTool(tool.id, "install"))}>安装</button>}
-                {tool.installed && tool.id === "explorer-patcher" && <button className="button secondary" disabled={blocked} onClick={() => void mutate(() => optionalTool(tool.id, "system-taskbar"))}>恢复系统任务栏</button>}
-                {tool.managed && <RestoreButton label="还原" description={`卸载 WinGlow 安装的${tool.label}，恢复启用前的配置。`} disabled={blocked} onRestore={() => void mutate(() => optionalTool(tool.id, "remove"))} />}
+                <Switch label={tool.label} checked={tool.enabled} disabled={blocked || !tool.supported} onChange={value => void mutate(() => optionalTool(tool.id, value ? "enable" : "disable"))} />
               </div>
               {tool.installed && tool.id === "lively" && desktopSettings && <WallpaperControls key={`${desktopSettings.wallpaper.selected}-${desktopSettings.wallpaper.intervalMinutes}-${desktopSettings.wallpaper.volume}-${desktopSettings.wallpaper.canRestore}-${desktopSettings.wallpaper.items.length}`} settings={desktopSettings.wallpaper} disabled={blocked} run={mutate}/>}
-              {tool.installed && tool.id === "explorer-patcher" && desktopSettings && <ClassicControls key={JSON.stringify(desktopSettings.classic)} settings={desktopSettings.classic} disabled={blocked || !tool.supported} run={mutate}/>}
             </div>)}
           </section>
         </>}</> : <>
@@ -188,7 +197,7 @@ export default function App() {
           </div><div className="repair-section"><h2>普通还原无效？</h2><p>扫描并修复 Windows 系统文件，再恢复默认字体。可能需要联网和重启。</p><RestoreButton label="扫描并修复" description="将运行 Windows 系统修复，可能需要较长时间。期间不要关闭程序，结束后请注销或重启。" disabled={!desktop || busy || loading || upgrading} primary onRestore={() => void scanRepair()} /></div>
           <button className="text-button" disabled={!desktop || !bootstrap} onClick={() => { if (bootstrap) void openBackup().catch(error => setNotice({ text: String(error), error: true })); }}>打开备份</button>
           <div className="dictionary-settings"><span>菜单识别库</span><button className="button secondary" disabled={blocked} onClick={() => void mutate(refreshMenuDictionary)}>检查更新</button></div>
-          {upgradeError && <div className="notice" role="status"><p>上次自动应用优化方案未完成，已暂停自动重试。</p><button className="button secondary" disabled={blocked} onClick={() => void mutate(async () => { const result = await retryOptimizationUpgrade(); setUpgradeError(false); return result; })}>重试优化方案更新</button></div>}
+          {upgradeError && <div className="notice" role="status"><p>桌面初始化或优化方案更新未完成，可以在这里重试。</p><button className="button secondary" disabled={blocked} onClick={() => void mutate(async () => { const result = await retryOptimizationUpgrade(); setUpgradeError(false); return result; })}>重试初始化</button></div>}
         </>}
       {pendingRecovery && <div className="notice error" role="alert"><p>{bootstrap?.pendingRecovery || "上次修改没有完成，请先还原。"}</p><button className="button secondary" disabled={busy || loading || upgrading || !desktop} onClick={() => void mutate(recoverPending)}>{busy ? "正在恢复…" : "恢复未完成修改"}</button></div>}
       <AppUpdates settings={page === "settings"} blocked={busy || upgrading || repairing || !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending} />

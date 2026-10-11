@@ -37,7 +37,7 @@ WinGlow 改名保留四类兼容记录：旧用户数据目录、原应用 ident
 
 3.1.5 保留三种字体族，鸿蒙包含兼容原 ID 的标准方案 harmonyos-sc 和新增 harmonyos-sc-bold。粗方案让正文使用真实 Bold 700，预览通过原 Bold 文件单独的 CSS 族提供，避免伪加粗。标准保留 Regular/Medium/Bold 层级映射。当前预览的字体与字重读取 Windows 实时 MessageFont，不再仅由 FontSubstitutes 推断显示效果；needsFontRefresh 检查六种实时角色的族与字重，旧映射已应用但原生设置缺失时，允许同方案再次应用。
 
-应用计划增加六个固定 WindowMetrics 字体值和一个 LiveUiFonts 虚拟值。持久值保留原类型、字节与不存在状态；虚拟值通过 SPI_GET 读取六种 LOGFONT 与系统 DPI，在同一事务中通过 SPI_SET 更新。SPI_SET 不使用 SPIF_UPDATEINIFILE，持久化由已有逐值事务控制，避免回退时把原本不存在的值重新创建。仅调整字体族与字重，字号、质量标记、窗口和菜单尺寸不作为美化参数修改；持久 LOGFONT 保留实际 DPI 下的字号，实时快照记录原 DPI 下的精确值；SPI_SET 参数转换成 96 DPI 逻辑字号，读写时临时使用 System-aware 线程上下文并恢复。任何写入、激活或提交失败，同一事务回退实时值与持久值；普通默认恢复、最近修改撤销及字体修复会包含这些字体范围。不同 DPI 下恢复会换算字体高度，若回读不一致则明确报告，不伪装成成功。诊断 --diagnose-ui-fonts 仅查询，不设置。
+应用计划增加六个固定 WindowMetrics 字体值和一个 LiveUiFonts 虚拟值。持久值保留原类型、字节与不存在状态；虚拟值通过 SPI_GET 读取六种 LOGFONT 与系统 DPI，在同一事务中通过 SPI_SET 更新。SPI_SET 不使用 SPIF_UPDATEINIFILE，持久化由已有逐值事务控制，避免回退时把原本不存在的值重新创建。仅调整字体族与字重，字号、质量标记、窗口和菜单尺寸不作为美化参数修改；持久 LOGFONT 保留实际 DPI 下的字号，实时快照记录原 DPI 下的精确值；SPI_SET 在 System-aware 线程上下文中使用当前系统 DPI 下的实际字号；从旧 DPI 快照恢复时转换到当前系统 DPI，完成后恢复线程上下文。不得将 DPI-unaware PowerShell 调用的逻辑单位套用到 System-aware 原生调用。任何写入、激活或提交失败，同一事务回退实时值与持久值；普通默认恢复、最近修改撤销及字体修复会包含这些字体范围。不同 DPI 下恢复会换算字体高度，若回读不一致则明确报告，不伪装成成功。诊断 --diagnose-ui-fonts 仅查询，不设置。
 
 3.1.4 菜单扫描新增固定文件类型白名单；修改路径沿用同一白名单，不开放任意注册表路径。菜单 ID 与备份位置兼容旧版，按 CLSID 合并扩展的作用位置，保留一个全局开关。读取嵌套 shell 和 CommandStore 的静态二级菜单；动态菜单不臆造内部项目。菜单名称解析系统资源及常见友好名称，原名收在详情中；图标来源区分菜单图标与程序图标。已知位置按文件类型继承公共菜单，不等于全部关联类型的完整枚举，也不等于某个文件的实际弹出菜单。
 
@@ -49,7 +49,7 @@ WinGlow 改名保留四类兼容记录：旧用户数据目录、原应用 ident
 
 `--verify-native-menu` 在独立进程中通过 IShellItem / IContextMenu 查询自有文件夹、文本和空 ZIP 的原生菜单，输出 `native-menu-verification.json`，不调用菜单命令。它不经过 Breeze 的渲染过滤，不能当作 Breeze 的视觉验收。`--compact-menu` 执行和界面一键精简相同的备份、授权、修改与刷新流程，结果保存在 `menu-compact-result.json`。
 
-普通界面采用 asInvoker。字体应用/导入/恢复与 HKLM 菜单修改时启动同一 EXE 的管理员 helper。当前用户设置和桌面 COM 操作直接运行。Breeze 启用拒绝管理员进程。helper 只接受 UUID 请求编号，按固定用户数据目录读取结构化操作；字体文件仍需完整解析。多窗口修改由 Global 命名 mutex 串行化；保持旧 mutex 名称，避免旧版与 WinGlow 同时修改系统。
+普通界面采用 asInvoker。字体应用/导入/恢复与 HKLM 菜单修改时启动同一 EXE 的管理员 helper。当前用户设置和桌面 COM 操作直接运行。桌面组件核对当前账户和 Explorer 的权限级别；意外提权的 GUI 尝试按同账户的桌面令牌重新启动，权限不匹配时报告失败，不要求修改系统 UAC。helper 只接受 UUID 请求编号，按固定用户数据目录读取结构化操作；字体文件仍需完整解析。多窗口修改由 Global 命名 mutex 串行化；保持旧 mutex 名称，避免旧版与 WinGlow 同时修改系统。
 
 资源先校验并准备到 `%PROGRAMDATA%\WinGlow\Fonts`，不会覆盖 `C:\Windows\Fonts`。内容哈希避免覆盖其它字体文件。资源准备失败不写注册表。
 
@@ -74,6 +74,8 @@ npm run tauri build -- --bundles nsis
 ```
 
 `scripts/Build-ModernPackages.ps1` 运行这些检查并生成安装包、便携包和 SHA-256 清单。公开发布前先完成 [字体实测](font-research.md) 中的真实系统检查；本地构建成功不能代表已发布。
+
+若同版本便携程序正在使用输出目录，传入 `-OutputDirectory` 生成独立测试目录，不直接覆盖运行中的 EXE。1.1.10 的字体校验、初始化/更新状态、恢复入口及原生窗口工作区适配见 [综合检查记录](audit-1.1.10.md)。
 
 自动测试使用内存注册表后端和隔离的原生 HKCU 临时测试键，注入写入失败、激活失败、备份失败及无声写入丢失；不会更改开发电脑的字体。另检查九个内置字体的字重/常用字形和旧版 REG 解析。系统字体实测单独记录，不能用浏览器截图代替。苹方内置检查见 verification-3.1.3.md，事务检查的详细边界见 verification-3.1.0.md。
 
@@ -122,3 +124,9 @@ transaction 保存快照并同步落盘后才写设置。repair 扫描前新增�
 显式实机验收命令（会重启桌面两次，不属于默认测试）：
 `cargo test --manifest-path WinGlow.App/src-tauri/Cargo.toml explorer::tests::real_desktop_two_refreshes_keep_owned_effects_and_config -- --ignored --exact --nocapture`
 它要求任务栏已经启用，持有优化互斥锁，检查两次 shell PID 确实改变、30秒内完成、独立配置逐字节不变、已启用 Breeze/任务栏仍在运行且无自有可见警告对话框。不改字体、菜单或系统设置。
+
+## 1.1.12 本地验收修订
+
+经典布局的界面、IPC、安装下载和设置实现已移除。历史 Scope::ClassicConfig 仅用于读取旧备份与检测外部任务栏冲突，不再开放修改入口。壁纸播放路径必须先做目录边界校验，再转换为普通 Windows 路径；不得把 canonicalize 产生的 verbatim 前缀传给 WebView2 播放器。WinGlow 的独立 --wallpaper-host 只轮播真实库项目，配置变更通过新 generation 重置计时及预期选择，手动选择停止轮播。关闭主界面不终止轮播；默认间隔5分钟。
+
+字体选择与一键优化均维持按当前 DPI 计算的最小9pt可读字号，保留更大的用户字号；打开已优化的客户端与重建桌面时核对实际桌面缓存。更新迁移仅对较旧的有效已完成版本运行，较旧客户端不得用自身方案覆盖更高版本方案。真实设备验收与自动检查边界见 local-1.1.12-verification.md。

@@ -41,7 +41,7 @@ pub fn finish_upgrade(result: &Result<Option<ActionResult>>) {
         Ok(None) => (),
         Err(error) => {
             status.error = true;
-            status.message = format!("优化方案更新未完成：{error:#}");
+            status.message = format!("桌面初始化未完成：{error:#}");
         }
     }
     // Persist the exact failure for support and avoid repeating a failing automatic
@@ -55,6 +55,14 @@ pub fn finish_upgrade(result: &Result<Option<ActionResult>>) {
     }
 }
 pub fn update_on_startup() -> Result<Option<ActionResult>> {
+    // A historical error must not block initialization after undo/recovery,
+    // or after a completed migration whose last shell refresh failed.
+    let Some(before) = session()? else {
+        return Ok(None);
+    };
+    if !upgrade_due(&before, done(&before.token)?.is_file()) {
+        return Ok(None);
+    }
     if let Ok(bytes) = fs::read(font_engine::data_root()?.join("optimization-upgrade-status.json"))
         && let Ok(report) = serde_json::from_slice::<serde_json::Value>(&bytes)
         && report["version"] == env!("CARGO_PKG_VERSION")
@@ -66,6 +74,7 @@ pub fn update_on_startup() -> Result<Option<ActionResult>> {
                 .as_str()
                 .unwrap_or("请查看恢复页面")
                 .trim_start_matches("优化方案更新未完成：")
+                .trim_start_matches("桌面初始化未完成：")
         );
     }
     update_if_due()
@@ -220,6 +229,9 @@ pub(crate) fn restore_deferred() -> Result<ActionResult> {
     restore_inner(false)
 }
 fn restore_inner(refresh: bool) -> Result<ActionResult> {
+    restore_inner_with_wallpaper(refresh, true)
+}
+fn restore_inner_with_wallpaper(refresh: bool, restore_wallpaper: bool) -> Result<ActionResult> {
     let Some(s) = session()? else {
         return Ok(ActionResult {
             message: "没有需要撤销的一键优化。".into(),
@@ -241,7 +253,7 @@ fn restore_inner(refresh: bool) -> Result<ActionResult> {
         });
     }
     // Stop only effects activated by this session before restoring their configuration.
-    if let Some(wallpaper) = &s.wallpaper {
+    if restore_wallpaper && let Some(wallpaper) = &s.wallpaper {
         crate::optional_tools::restore_wallpaper_optimization(wallpaper)?;
     }
     if !s.taskbar_before {
@@ -293,14 +305,37 @@ pub fn update_if_due() -> Result<Option<ActionResult>> {
     let Some(before) = session()? else {
         return Ok(None);
     };
-    if !done(&before.token)?.is_file() || before.applied_version == env!("CARGO_PKG_VERSION") {
+    if !upgrade_due(&before, done(&before.token)?.is_file()) {
         return Ok(None);
     }
     apply_inner(Some(before)).map(Some)
 }
+fn upgrade_due(before: &Session, completed: bool) -> bool {
+    migration_due(
+        &before.applied_version,
+        env!("CARGO_PKG_VERSION"),
+        completed,
+    )
+}
+fn migration_due(applied: &str, current: &str, completed: bool) -> bool {
+    if !completed {
+        return false;
+    }
+    if applied.is_empty() {
+        return true;
+    }
+    match (
+        semver::Version::parse(applied),
+        semver::Version::parse(current),
+    ) {
+        (Ok(applied), Ok(current)) => applied < current,
+        _ => false,
+    }
+}
 fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
     shell_engine::ensure_ready()?;
-    crate::optional_tools::prepare_wallpaper_optimization()?;
+    let wallpaper_ready = crate::optional_tools::prepare_wallpaper_optimization()
+        .and_then(|()| crate::optional_tools::capture_wallpaper_optimization());
     // Preparation may download Breeze; no host settings change before all preparation succeeds.
     breeze::prepare()?;
     if taskbar::supported() {
@@ -312,10 +347,6 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
     }
     // The original baseline is for explicit undo. A failed upgrade must instead
     // restore the currently working profile, including the user's wallpaper.
-    let upgrade_wallpaper = before
-        .as_ref()
-        .map(|_| crate::optional_tools::capture_wallpaper_optimization())
-        .transpose()?;
     let prior_tokens = before
         .as_ref()
         .map(|old| {
@@ -339,12 +370,10 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
         },
         start_menu_applied,
         window_material_applied: crate::window_material::supported(),
-        wallpaper: Some(
-            match before.as_ref().and_then(|old| old.wallpaper.clone()) {
-                Some(wallpaper) => wallpaper,
-                None => crate::optional_tools::capture_wallpaper_optimization()?,
-            },
-        ),
+        wallpaper: before
+            .as_ref()
+            .and_then(|old| old.wallpaper.clone())
+            .or_else(|| wallpaper_ready.as_ref().ok().cloned()),
         applied_version: env!("CARGO_PKG_VERSION").into(),
         prior_tokens,
     };
@@ -355,6 +384,7 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
     } else {
         transaction::persist_new(&marker()?, &serde_json::to_vec(&s)?)?;
     }
+    let mut refresh_message = String::new();
     finish_session(
         || {
             worker::run_inner(Operation::OptimizeCore {
@@ -363,30 +393,44 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
             Ok(())
         },
         || {
+            // All registry changes are complete. Refresh once before starting
+            // new effects/wallpaper, rather than starting and stopping them twice.
+            refresh_message = crate::explorer::finish(
+                Ok(ActionResult {
+                    message: String::new(),
+                }),
+                true,
+                || {
+                    if wallpaper_ready.is_ok() {
+                        crate::explorer::restart_for_optimization()
+                    } else {
+                        crate::explorer::restart()
+                    }
+                },
+            )?
+            .message;
             if taskbar::supported() {
-                taskbar::reload_owned()?;
+                taskbar::sync()?;
             }
             breeze::sync()?;
             if s.start_menu_applied {
-                crate::visual::stop_start()?;
                 crate::visual::sync_start()?;
             }
             if s.window_material_applied {
                 crate::window_material::sync()?;
             }
-            crate::optional_tools::apply_wallpaper_optimization()?;
             Ok(())
         },
         || transaction::persist_new(&done(&s.token)?, b"ok"),
         || {
-            if let (Some(old), Some(wallpaper)) = (&before, &upgrade_wallpaper) {
+            if let Some(old) = &before {
                 worker::run_inner(Operation::RollbackUpgrade {
                     token: s.token.clone(),
                 })?;
-                crate::optional_tools::restore_wallpaper_optimization(wallpaper)?;
                 taskbar::sync()?;
                 breeze::sync()?;
                 crate::visual::reload()?;
+                crate::optional_tools::resume_lively_after_refresh()?;
                 let temporary = marker()?.with_extension(format!("{}.restore.tmp", s.token));
                 transaction::persist_new(&temporary, &serde_json::to_vec(old)?)?;
                 worker::replace_file(&temporary, &marker()?)?;
@@ -394,28 +438,55 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
                     Ok(ActionResult {
                         message: "已保留升级前的优化方案。".into(),
                     }),
-                    true,
+                    false,
                     crate::explorer::restart,
                 )
             } else {
-                restore_inner(true)
+                // Wallpaper has not changed yet. Do not stop it or restart the
+                // shell a second time while rolling back a critical failure.
+                let restored = restore_inner_with_wallpaper(false, false)?;
+                crate::optional_tools::resume_lively_after_refresh()?;
+                Ok(restored)
             }
         },
     )?;
-    let result = crate::explorer::finish(
-        Ok(ActionResult {
-            message: "已优化字体、右键菜单、图标角标及桌面效果，已开启动态壁纸轮播。".into(),
-        }),
-        true,
-        crate::explorer::restart,
-    )?;
-    let mut result = result;
+    let mut result = ActionResult {
+        message: format!("已优化字体、右键菜单、图标角标及桌面效果。{refresh_message}"),
+    };
+    // Optional wallpaper runs last, after the single shell refresh. A player
+    // failure restores only its own profile, never the committed core settings.
+    let wallpaper_result = match wallpaper_ready {
+        Ok(current) => {
+            finish_optional_wallpaper(crate::optional_tools::apply_wallpaper_optimization, || {
+                crate::optional_tools::restore_wallpaper_optimization(&current)
+            })
+        }
+        Err(error) => Err(error),
+    };
+    match wallpaper_result {
+        Ok(()) => result.message.push_str(" 已开启动态壁纸轮播。"),
+        Err(error) => result.message.push_str(&format!(
+            " 动态壁纸未完成：{error:#}。字体和菜单优化已保留，可在基础美化页重试壁纸。"
+        )),
+    }
     if crate::visual::start_supported() && !s.start_menu_applied {
         result
             .message
             .push_str(" 已有其他 Windhawk 实例，开始菜单美化未重复启用。");
     }
     Ok(result)
+}
+fn finish_optional_wallpaper(
+    apply: impl FnOnce() -> Result<()>,
+    restore: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    match apply() {
+        Ok(()) => Ok(()),
+        Err(error) => match restore() {
+            Ok(()) => Err(error.context("已恢复原壁纸")),
+            Err(restore) => Err(error.context(format!("原壁纸恢复未完成：{restore:#}"))),
+        },
+    }
 }
 fn finish_session(
     core: impl FnOnce() -> Result<()>,
@@ -444,14 +515,57 @@ pub fn menu_only() -> Result<ActionResult> {
     }
     shell_engine::commit("menu:auto", entries, || Ok(()))?;
     Ok(ActionResult {
-        message: format!("已隐藏 {count} 个附加菜单。需要时可手动打开。"),
+        message: "菜单已精简。需要时可手动打开附加选项。".into(),
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn optional_wallpaper_failure_restores_only_wallpaper_and_retains_its_error() {
+        let restores = std::cell::Cell::new(0);
+        let error = finish_optional_wallpaper(
+            || bail!("player timeout"),
+            || {
+                restores.set(restores.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap_err();
+        assert_eq!(restores.get(), 1);
+        assert!(format!("{error:#}").contains("player timeout"));
+        finish_optional_wallpaper(
+            || Ok(()),
+            || panic!("successful wallpaper must not roll back"),
+        )
+        .unwrap();
+        let error = finish_optional_wallpaper(|| bail!("apply"), || bail!("restore")).unwrap_err();
+        assert!(format!("{error:#}").contains("restore"));
+    }
     use std::cell::RefCell;
+    #[test]
+    fn only_completed_older_sessions_need_a_migration() {
+        let mut session: Session = serde_json::from_str(
+            r#"{"token":"original","breeze_before":false,"taskbar_before":false}"#,
+        )
+        .unwrap();
+        for version in ["", "1.1.9", env!("CARGO_PKG_VERSION")] {
+            session.applied_version = version.into();
+            assert!(!upgrade_due(&session, false));
+            assert_eq!(
+                upgrade_due(&session, true),
+                version != env!("CARGO_PKG_VERSION")
+            );
+        }
+    }
+    #[test]
+    fn older_executable_never_downgrades_a_newer_optimization() {
+        assert!(!migration_due("1.1.12", "1.1.11", true));
+        assert!(!migration_due("broken", "1.1.11", true));
+        assert!(!migration_due("1.1.11", "1.1.11", true));
+        assert!(migration_due("1.1.9", "1.1.11", true));
+    }
     #[test]
     fn old_sessions_do_not_claim_new_visual_components() {
         let s: Session = serde_json::from_str(r#"{"token":"1b3bc61e-5619-47b4-b81b-0f435268057c","breeze_before":true,"taskbar_before":true}"#).unwrap();

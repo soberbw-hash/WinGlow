@@ -108,8 +108,28 @@ pub fn validate_config(value: Option<&StoredValue>) -> Result<()> {
     }
     Ok(())
 }
-fn config() -> Vec<u8> {
-    serde_json::to_vec_pretty(&serde_json::json!({"desktop_appearance":{"accent":"blur","color":"#00000000","show_line":true},"visible_window_appearance":{"enabled":false},"maximized_window_appearance":{"enabled":false},"start_opened_appearance":{"enabled":false},"search_opened_appearance":{"enabled":false},"task_view_opened_appearance":{"enabled":false},"battery_saver_appearance":{"enabled":false},"disable_saving":true,"hide_tray":false})).unwrap()
+pub(crate) fn config() -> Vec<u8> {
+    let look = serde_json::json!({
+        "enabled": true,
+        "accent": "blur",
+        "color": "#00000000",
+        "show_line": true,
+        "blur_radius": 9.0
+    });
+    let mut desktop = look.clone();
+    desktop.as_object_mut().unwrap().remove("enabled");
+    serde_json::to_vec_pretty(&serde_json::json!({
+        "desktop_appearance": desktop,
+        "visible_window_appearance": look,
+        "maximized_window_appearance": look,
+        "start_opened_appearance": look,
+        "search_opened_appearance": look,
+        "task_view_opened_appearance": look,
+        "battery_saver_appearance": {"enabled": false},
+        "disable_saving": true,
+        "hide_tray": false
+    }))
+    .unwrap()
 }
 pub fn plan() -> Result<Vec<Entry>> {
     Ok(vec![
@@ -127,8 +147,8 @@ pub fn plan() -> Result<Vec<Entry>> {
     ])
 }
 pub fn prepare() -> Result<()> {
-    if crate::desktop_settings::classic_settings()?.taskbar != 0 {
-        bail!("经典任务栏正在启用，请先恢复系统任务栏，再启用透明效果。");
+    if crate::desktop_settings::legacy_taskbar_active()? {
+        bail!("第三方任务栏替代组件正在启用，请先恢复系统任务栏。");
     }
     if !supported() {
         bail!("透明任务栏目前支持 Windows 11。");
@@ -503,6 +523,18 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_slice(&config()).unwrap();
         assert_eq!(parsed["desktop_appearance"]["accent"], "blur");
         assert_eq!(parsed["desktop_appearance"]["show_line"], true);
+        for state in [
+            "visible_window_appearance",
+            "maximized_window_appearance",
+            "start_opened_appearance",
+            "search_opened_appearance",
+            "task_view_opened_appearance",
+        ] {
+            assert_eq!(parsed[state]["enabled"], true, "{state}");
+            let mut look = parsed[state].clone();
+            look.as_object_mut().unwrap().remove("enabled");
+            assert_eq!(look, parsed["desktop_appearance"], "{state}");
+        }
         assert_eq!(parsed["disable_saving"], true);
     }
 }
