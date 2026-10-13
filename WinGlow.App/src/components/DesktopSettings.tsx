@@ -26,13 +26,12 @@ export function TaskbarControls({settings,disabled,run}:{settings:TaskbarSetting
 }
 export function WallpaperControls({settings,disabled,run}:{settings:DesktopSettings["wallpaper"];disabled:boolean;run:Run}) {
   const selected=settings.selected;
-  const [minutes,setMinutes]=useState(settings.intervalMinutes);
   return <fieldset className="desktop-settings wallpaper-settings" disabled={disabled}><legend className="sr-only">壁纸设置</legend>
-    <div className="wallpaper-grid" role="group" aria-label="选择壁纸">{settings.items.map(item=><button key={item.id} type="button" aria-pressed={selected===item.id} className={cn("wallpaper-card",selected===item.id&&"selected")} onClick={()=>void run(()=>selectWallpaper(item.id,minutes))}>
+    <div className="wallpaper-grid" role="group" aria-label="选择壁纸">{settings.items.filter(item=>item.id!=="builtin:carousel").map(item=><button key={item.id} type="button" aria-pressed={selected===item.id} className={cn("wallpaper-card",selected===item.id&&"selected")} onClick={()=>void run(()=>selectWallpaper(item.id,5))}>
       {item.preview?<img src={item.preview} alt="" loading="lazy"/>:<span className={cn("wallpaper-preview",`wallpaper-${item.scene??"carousel"}`)} aria-hidden="true"/>}<span>{item.title}</span>
     </button>)}</div>
     <div className="desktop-control-row">
-      {selected==="builtin:carousel" && <label className="visual-control">切换间隔<select aria-label="切换间隔" value={minutes} onChange={e=>{const next=Number(e.target.value);setMinutes(next);void run(()=>selectWallpaper("builtin:carousel",next));}}>{[1,5,10,15,30].map(n=><option key={n} value={n}>{n} 分钟</option>)}</select></label>}
+
 
       <button className="button secondary" onClick={()=>void run(chooseWallpaper)}>导入视频或动图</button>
       <button className="button secondary" disabled={disabled||!settings.canRestore} onClick={()=>void run(()=>wallpaperControl("restore-settings"))}>恢复上次壁纸</button>

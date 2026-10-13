@@ -85,9 +85,6 @@ pub struct WallpaperRefresh {
 fn resume_marker() -> Result<PathBuf> {
     Ok(font_engine::data_root()?.join("lively-refresh-resume.json"))
 }
-fn wallpaper_refresh_pending() -> Result<bool> {
-    Ok(resume_marker()?.try_exists()?)
-}
 fn known_lively(exe: &Path) -> Result<bool> {
     Ok(runtime::same_path(exe, &own_exe(&LIVELY)?)
         || lively_existing().is_some_and(|installed| runtime::same_path(exe, &installed)))
@@ -223,7 +220,7 @@ pub fn states() -> Result<Vec<ToolState>> {
         enabled: wallpaper_enabled()?,
         managed: record(&LIVELY)?.is_some_and(|s| s.installed_by_winglow),
         supported: true,
-        note: "点击图片直接切换壁纸；一键优化启用壁纸库轮播，默认静音。".into(),
+        note: "一键优化默认使用 Rain，默认静音；可点击图片手动切换。".into(),
     }])
 }
 pub fn prepare(id: &str) -> Result<()> {
@@ -302,6 +299,16 @@ fn wallpaper_enabled() -> Result<bool> {
         Err(error) => return Err(error.into()),
     };
     Ok(layout.as_array().is_some_and(|items| !items.is_empty()))
+}
+pub(crate) fn stop_legacy_rotation() -> Result<()> {
+    carousel::stop()
+}
+pub(crate) fn disable_managed_wallpaper() -> Result<()> {
+    carousel::stop()?;
+    if installed(&LIVELY)? {
+        set_wallpaper_enabled(false)?;
+    }
+    Ok(())
 }
 fn wallpaper_disabled_marker() -> Result<PathBuf> {
     Ok(font_engine::data_root()?.join("wallpaper-disabled.json"))
@@ -452,7 +459,18 @@ pub fn apply_wallpaper_optimization() -> Result<()> {
     persist_startup_selection(&first)?;
     let exe = lively_executable()?;
     ensure_lively_started(&exe)?;
-    carousel::configure(&exe, 5)
+    carousel::stop()?;
+    // A fresh/stopped library may have no monitor entries to rewrite. Starting
+    // Lively only restores its saved layout, so explicitly select the default.
+    send_wallpaper_command(
+        &exe,
+        &[
+            "setwp".into(),
+            "--file".into(),
+            first.to_string_lossy().into_owned(),
+        ],
+    )?;
+    wait_for_selection(&exe, &first)
 }
 fn wait_for_selection(exe: &Path, project: &Path) -> Result<()> {
     // Startup restores its saved wallpaper asynchronously. A momentary match
@@ -879,12 +897,6 @@ fn wallpaper_undo_marker() -> Result<PathBuf> {
 pub fn wallpaper_library() -> Result<WallpaperLibrary> {
     use base64::{Engine, engine::general_purpose::STANDARD};
     let mut items = vec![];
-    items.push(WallpaperCard {
-        id: "builtin:carousel".into(),
-        title: "自动轮播".into(),
-        preview: None,
-        scene: None,
-    });
     let root = lively_library()?.join("wallpapers");
     if let Ok(dirs) = fs::read_dir(&root) {
         let mut dirs = dirs.filter_map(|d| d.ok()).collect::<Vec<_>>();
@@ -944,7 +956,6 @@ pub fn wallpaper_library() -> Result<WallpaperLibrary> {
             });
         }
     }
-    items[0].preview = items.iter().skip(1).find_map(|item| item.preview.clone());
     let path = lively_file("Settings.json")?;
     let settings = fs::read(path)
         .ok()
@@ -984,12 +995,6 @@ pub fn wallpaper_library() -> Result<WallpaperLibrary> {
             format!("library:{n}")
         }
     });
-    let selected = if carousel::active() {
-        interval_minutes = carousel::minutes();
-        Some("builtin:carousel".into())
-    } else {
-        selected
-    };
     Ok(WallpaperLibrary {
         items,
         selected,
@@ -1027,7 +1032,7 @@ fn wallpaper_change(change: impl FnOnce(&Path) -> Result<()>) -> Result<ActionRe
 }
 pub fn select_wallpaper(id: String, minutes: u32) -> Result<ActionResult> {
     if id == "builtin:carousel" {
-        return wallpaper_change(|exe| carousel::configure(exe, minutes));
+        bail!("自动轮播已移除，请直接选择一张壁纸。");
     }
     let project = if let Some(scene) = id.strip_prefix("builtin:") {
         scene_project(scene, minutes)?

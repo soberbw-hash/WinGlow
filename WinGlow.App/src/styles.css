@@ -243,3 +243,7 @@ input, select, textarea { font-family: inherit; }
 .wallpaper-dawn { background:linear-gradient(140deg,#3c536e,#8b97b7 58%,#b6b4bf); }
 .wallpaper-carousel { background:linear-gradient(110deg,#213d61 0 33%,#306e84 33% 66%,#8b97b7 66%); }
 .desktop-settings:disabled { opacity:.6; }
+
+.project-links { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--brand-line); }
+.project-links h2 { font-size: 18px; margin-bottom: 16px; }
+.project-link-actions { display: flex; flex-wrap: wrap; gap: 12px; }

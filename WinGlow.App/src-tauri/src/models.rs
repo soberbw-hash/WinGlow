@@ -74,6 +74,7 @@ pub enum Operation {
         settings: crate::desktop_settings::TaskbarSettings,
     },
 
+    RestoreNormal,
     Repair,
 }
 

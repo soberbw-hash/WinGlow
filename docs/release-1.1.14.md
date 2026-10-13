@@ -1,0 +1,15 @@
+# WinGlow 1.1.14
+
+一键优化默认使用 Rain 动态壁纸，用户可以在基础美化里点击图片更换。移除定时轮播，避免后台自动切换带来的桌面闪断。
+
+[下载安装包（Windows x64）](https://github.com/soberbw-hash/WinGlow/releases/download/v1.1.14/WinGlow-1.1.14-Setup.exe) · [下载便携版](https://github.com/soberbw-hash/WinGlow/releases/download/v1.1.14/WinGlow-1.1.14-Portable.zip)
+
+- **一键还原**：恢复 Windows 默认字体、按最早可用备份恢复菜单、恢复图标并关闭本工具管理的美化效果；保留可读字号，不改变显示缩放。与“撤销最近修改”分开，不运行系统扫描。
+- **托盘**：点叉号隐藏界面，单击托盘打开，右键退出；重复启动打开已有窗口。
+- **主页入口**：设置与还原新增作者主页和项目主页按钮。
+- **壁纸**：默认 Rain、静音，不再自动轮播；手动更换仍由壁纸引擎加载，可能有短暂过渡。旧轮播配置会清理，壁纸媒体和原始备份保留。
+- **首次应用**：修复没有已保存壁纸布局时，一键优化默认壁纸未实际应用而超时的问题。
+
+支持 Windows 10 / 11 x64，部分美化效果需要 Windows 11。字体应用、一键还原或升级优化方案可能刷新一次桌面；菜单精简不会主动重启桌面。还原只能恢复已管理、已备份的项目，不能把整台电脑恢复成出厂状态。
+
+推荐安装版，已有新版客户端可通过软件更新。附件包含更新签名、latest.json 和 SHA256SUMS.txt；[检查记录](https://github.com/soberbw-hash/WinGlow/blob/main/docs/verification-1.1.14.md)列出自动与本机验收范围。

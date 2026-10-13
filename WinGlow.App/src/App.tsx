@@ -9,7 +9,7 @@ import { VisualSettings } from "./components/VisualSettings";
 import { TaskbarControls, WallpaperControls } from "./components/DesktopSettings";
 import appIcon from "./assets/app-icon.png";
 import { cn } from "./lib/cn";
-import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, optimizeSystem, optimizeMenu, optionalTool, loadDesktopSettings, optimizationUpgradeStatus, retryOptimizationUpgrade, refreshMenuDictionary } from "./lib/tauri";
+import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, restoreNormal, optimizeSystem, optimizeMenu, optionalTool, loadDesktopSettings, optimizationUpgradeStatus, retryOptimizationUpgrade, refreshMenuDictionary, openHomepage } from "./lib/tauri";
 import type { BootstrapPayload, PageId, ShellState, ActionResult, DesktopSettings } from "./types";
 
 const pages = [
@@ -147,7 +147,7 @@ export default function App() {
   const optimizationEffects = shell ? <div className="settings-list">{[{ id: "transparent-taskbar", label: "透明任务栏", note: "柔和模糊背景，保留任务栏细线。", enabled: shell.taskbarEnabled, supported: shell.taskbarSupported }, { id: "window-material", label: "窗口背景", note: "调整支持窗口的标题栏与背景材质。应用的不透明内容区域不会变成磨砂。", enabled: shell.windowMaterialEnabled, supported: shell.windowMaterialSupported }, { id: "start-menu", label: "开始菜单美化", note: "调整开始菜单的磨砂背景、圆角与鸿蒙字体，保留原来的布局。背景浓度越低，越通透。", enabled: shell.startMenuEnabled, supported: shell.startMenuSupported }].map(effect => <section className="effect-section" key={effect.id}><div className="setting-row"><div><h2>{effect.label}</h2><p>{effect.supported ? effect.note : "当前 Windows 版本暂不支持。"}</p></div><Switch label={effect.label} checked={effect.enabled} disabled={blocked || !effect.supported} onChange={value => void mutate(() => setTweak(effect.id, value))} /></div>{effect.supported && (effect.id === "window-material" || effect.id === "start-menu") && <VisualSettings key={effect.id === "window-material" ? shell.appearance.material : `${shell.appearance.tint}-${shell.appearance.radius}`} id={effect.id} settings={shell.appearance} enabled={effect.enabled} disabled={blocked} onApply={settings => void mutate(() => setAppearance(effect.id, settings))} />}{effect.id === "transparent-taskbar" && desktopSettings && <TaskbarControls key={JSON.stringify(desktopSettings.taskbar)} settings={desktopSettings.taskbar} disabled={blocked || !effect.supported} run={mutate} />}</section>)}</div> : null;
   return <div className="app-shell">
     <header className="titlebar" data-tauri-drag-region><span className="titlebar-name" data-tauri-drag-region>WinGlow</span><div className="window-controls">
-      <button aria-label="最小化" onClick={() => void windowAction("minimize")}><Minus size={15} /></button><button aria-label="最大化或还原" onClick={() => void windowAction("toggleMaximize")}><Square size={12} /></button><button aria-label="关闭" className="close-window" disabled={busy || upgrading} onClick={() => void windowAction("close")}><X size={17} /></button>
+      <button aria-label="最小化" onClick={() => void windowAction("minimize")}><Minus size={15} /></button><button aria-label="最大化或还原" onClick={() => void windowAction("toggleMaximize")}><Square size={12} /></button><button aria-label="关闭窗口并在托盘运行" title="关闭窗口，WinGlow 留在托盘运行" className="close-window" disabled={busy || upgrading} onClick={() => void windowAction("close")}><X size={17} /></button>
     </div></header>
     <div className="workspace"><aside className="sidebar"><div className="brand"><img src={appIcon} alt="" width={40} height={40} /><span>WinGlow</span></div>
       <nav aria-label="功能">{pages.map(({ id, label, icon: Icon }) => <button key={id} className={cn("nav-item", page === id && "active")} aria-current={page === id ? "page" : undefined} onClick={() => navigate(id)}><Icon size={18} /><span>{label}</span></button>)}</nav>
@@ -190,12 +190,20 @@ export default function App() {
           </section>
         </>}</> : <>
           <h1>还原</h1><div className="restore-actions">
+            <RestoreButton label="一键还原" description="恢复 Windows 默认字体、菜单及图标角标，关闭本工具管理的任务栏、窗口、开始菜单与动态壁纸效果。菜单按最早备份还原；不会扫描或修复系统文件。修改前自动备份，最后统一刷新一次桌面。" primary disabled={blocked} onRestore={() => void mutate(restoreNormal)} />
             <RestoreButton label="恢复默认字体" description="恢复默认字体映射和原来的显示参数，修改前自动备份。成功后重启资源管理器，请先完成文件复制。" disabled={!desktop || busy || loading || upgrading} onRestore={() => void mutate(() => restoreFonts("default"))} />
             <RestoreButton label="还原右键菜单" description="还原本工具修改的菜单项与 Breeze 自启设置。关闭 Breeze 后需要注销。" disabled={!desktop || busy || loading || upgrading} onRestore={() => void mutate(() => restoreCategory("menu"))} />
             <RestoreButton label="还原基础美化" description="恢复本工具修改前的基础美化设置。" disabled={!desktop || busy || loading || upgrading} onRestore={() => void mutate(() => restoreCategory("details"))} />
             <RestoreButton label="撤销最近修改" description="回到最近一次操作前。成功后重启资源管理器，请先完成文件复制。" disabled={!desktop || busy || loading || upgrading} onRestore={() => void mutate(() => restoreCategory("all-last"))} />
-          </div><div className="repair-section"><h2>普通还原无效？</h2><p>扫描并修复 Windows 系统文件，再恢复默认字体。可能需要联网和重启。</p><RestoreButton label="扫描并修复" description="将运行 Windows 系统修复，可能需要较长时间。期间不要关闭程序，结束后请注销或重启。" disabled={!desktop || busy || loading || upgrading} primary onRestore={() => void scanRepair()} /></div>
+          </div><div className="repair-section"><h2>普通还原无效？</h2><p>扫描并修复 Windows 系统文件，再恢复默认字体。可能需要联网和重启。</p><RestoreButton label="扫描并修复" description="将运行 Windows 系统修复，可能需要较长时间。期间不要关闭程序，结束后请注销或重启。" disabled={!desktop || busy || loading || upgrading} onRestore={() => void scanRepair()} /></div>
           <button className="text-button" disabled={!desktop || !bootstrap} onClick={() => { if (bootstrap) void openBackup().catch(error => setNotice({ text: String(error), error: true })); }}>打开备份</button>
+          <section className="project-links" aria-labelledby="project-links-heading">
+            <h2 id="project-links-heading">关于 WinGlow</h2>
+            <div className="project-link-actions">
+              <button className="button secondary" disabled={!desktop} onClick={() => void openHomepage("author").catch(error => setNotice({ text: `打开主页失败：${String(error)}`, error: true }))}>作者主页 ↗</button>
+              <button className="button secondary" disabled={!desktop} onClick={() => void openHomepage("project").catch(error => setNotice({ text: `打开主页失败：${String(error)}`, error: true }))}>项目主页 ↗</button>
+            </div>
+          </section>
           <div className="dictionary-settings"><span>菜单识别库</span><button className="button secondary" disabled={blocked} onClick={() => void mutate(refreshMenuDictionary)}>检查更新</button></div>
           {upgradeError && <div className="notice" role="status"><p>桌面初始化或优化方案更新未完成，可以在这里重试。</p><button className="button secondary" disabled={blocked} onClick={() => void mutate(async () => { const result = await retryOptimizationUpgrade(); setUpgradeError(false); return result; })}>重试初始化</button></div>}
         </>}

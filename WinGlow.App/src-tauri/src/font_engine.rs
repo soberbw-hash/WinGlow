@@ -512,6 +512,54 @@ pub fn load_bootstrap() -> Result<BootstrapPayload> {
     })
 }
 
+pub(crate) fn default_restore_plan(force: bool, dirs: &[PathBuf]) -> Result<Vec<Entry>> {
+    let mut entries = Vec::new();
+    for alias in MANAGED_ALIASES {
+        entries.push(Entry {
+            slot: registry::slot(Scope::Substitutes, *alias),
+            value: None,
+        });
+    }
+    // Earliest snapshots contain the original link values. Load each journal once.
+    let mut originals = std::collections::BTreeMap::new();
+    for dir in dirs.iter().rev() {
+        let journal = match transaction::read_journal(dir) {
+            Ok(j) => j,
+            Err(_) if force => continue,
+            Err(e) => return Err(e),
+        };
+        if !(dir.join("committed").exists() || transaction::is_pending(dir)) {
+            continue;
+        }
+        for entry in journal.before {
+            if matches!(
+                entry.slot.scope,
+                Scope::Links
+                    | Scope::Desktop
+                    | Scope::Avalon(_)
+                    | Scope::WindowMetrics
+                    | Scope::LiveUiFonts
+            ) {
+                originals.entry(entry.slot.clone()).or_insert(entry);
+            }
+        }
+    }
+    entries.extend(originals.into_values());
+    if let Some(dir) = legacy_backup(true)? {
+        match crate::legacy::read_backup(&dir) {
+            Ok(old) => entries.extend(
+                old.into_iter()
+                    .filter(|e| e.slot.scope != Scope::Substitutes),
+            ),
+            Err(_) if force => {}
+            Err(e) => return Err(e),
+        };
+    }
+    // v2 recovery can already have copied alias links into a v3 journal.
+    // Prefer the original v2 link value and write each slot exactly once.
+    Ok(unique_entries(entries))
+}
+
 pub fn perform(operation: Operation) -> Result<ActionResult> {
     let mut store = WindowsRegistry;
     let dirs = transaction::backup_directories(&backup_root()?)?;
@@ -574,51 +622,7 @@ pub fn perform(operation: Operation) -> Result<ActionResult> {
                     legacy_restore()?.ok_or_else(|| anyhow!("没有可恢复的备份。"))?
                 }
             } else if mode == "default" || force {
-                let mut entries = Vec::new();
-                for alias in MANAGED_ALIASES {
-                    entries.push(Entry {
-                        slot: registry::slot(Scope::Substitutes, *alias),
-                        value: None,
-                    });
-                }
-                // Earliest snapshots contain the original link values. Load each journal once.
-                let mut originals = std::collections::BTreeMap::new();
-                for dir in dirs.iter().rev() {
-                    let journal = match transaction::read_journal(dir) {
-                        Ok(j) => j,
-                        Err(_) if force => continue,
-                        Err(e) => return Err(e),
-                    };
-                    if !(dir.join("committed").exists() || transaction::is_pending(dir)) {
-                        continue;
-                    }
-                    for entry in journal.before {
-                        if matches!(
-                            entry.slot.scope,
-                            Scope::Links
-                                | Scope::Desktop
-                                | Scope::Avalon(_)
-                                | Scope::WindowMetrics
-                                | Scope::LiveUiFonts
-                        ) {
-                            originals.entry(entry.slot.clone()).or_insert(entry);
-                        }
-                    }
-                }
-                entries.extend(originals.into_values());
-                if let Some(dir) = legacy_backup(true)? {
-                    match crate::legacy::read_backup(&dir) {
-                        Ok(old) => entries.extend(
-                            old.into_iter()
-                                .filter(|e| e.slot.scope != Scope::Substitutes),
-                        ),
-                        Err(_) if force => {}
-                        Err(e) => return Err(e),
-                    };
-                }
-                // v2 recovery can already have copied alias links into a v3 journal.
-                // Prefer the original v2 link value and write each slot exactly once.
-                unique_entries(entries)
+                default_restore_plan(force, &dirs)?
             } else {
                 bail!("未知恢复方式。");
             };
@@ -699,7 +703,7 @@ fn legacy_restore() -> Result<Option<Vec<Entry>>> {
         .transpose()
 }
 
-fn unique_entries(entries: Vec<Entry>) -> Vec<Entry> {
+pub(crate) fn unique_entries(entries: Vec<Entry>) -> Vec<Entry> {
     entries
         .into_iter()
         .map(|entry| (entry.slot.clone(), entry))

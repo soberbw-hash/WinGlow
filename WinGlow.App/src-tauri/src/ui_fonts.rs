@@ -311,6 +311,9 @@ fn readable_snapshot(snapshot: &Snapshot) -> Result<Snapshot> {
     }
     Ok(desired)
 }
+pub(crate) fn windows_default_plan() -> Result<Vec<Entry>> {
+    entries(&readable_snapshot(&current()?)?, "Segoe UI", false)
+}
 pub fn optimization_plan(family: &str, heavier: bool) -> Result<Vec<Entry>> {
     entries(&readable_snapshot(&current()?)?, family, heavier)
 }

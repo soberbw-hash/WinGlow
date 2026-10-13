@@ -74,7 +74,9 @@ try {
     $guide = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $repoRoot '使用说明.txt')
     $guide | Set-Content -LiteralPath (Join-Path $portable 'README.md') -Encoding UTF8
     Compress-Archive -LiteralPath $portable -DestinationPath (Join-Path $outRoot "WinGlow-$version-Portable.zip") -Force
-    $lines = Get-ChildItem -LiteralPath $outRoot -File | Where-Object {$_.Extension -in '.exe','.zip','.sig','.json'} | ForEach-Object { "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" }
+    $lines = @("WinGlow-$version-Setup.exe", "WinGlow-$version-Setup.exe.sig", "WinGlow-$version-Portable.zip", 'latest.json') | ForEach-Object {
+        "$((Get-FileHash -LiteralPath (Join-Path $outRoot $_) -Algorithm SHA256).Hash.ToLowerInvariant())  $_"
+    }
     $lines | Set-Content -LiteralPath (Join-Path $outRoot 'SHA256SUMS.txt') -Encoding utf8
     Write-Output "Packages saved to $outRoot"
 } finally { Pop-Location }

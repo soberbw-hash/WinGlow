@@ -37,6 +37,7 @@ export const recoverPending = () => invoke<ActionResult>("recover_pending");
 export const repairSystem = () => invoke<ActionResult>("repair_system");
 export const repairProgress = () => invoke<RepairProgress>("repair_progress");
 export const optimizeSystem = (restore = false) => invoke<ActionResult>("optimize_system", { restore });
+export const restoreNormal = () => invoke<ActionResult>("restore_normal");
 export const optimizeMenu = () => invoke<ActionResult>("optimize_menu");
 export const openBackup = () => invoke<void>("open_backup");
 export const optionalTool = (id: string, action: "install" | "open" | "remove" | "enable" | "disable" | "system-taskbar") => invoke<ActionResult>("optional_tool", { id, action });
@@ -48,8 +49,10 @@ export const retryOptimizationUpgrade = () => invoke<ActionResult>("retry_optimi
 export const wallpaperControl = (action: "pause" | "play" | "mute" | "stop" | "restore-settings") => invoke<ActionResult>("wallpaper_control", { action });
 export async function loadDesktopSettings():Promise<DesktopSettings> {
   if(isTauri()) return invoke("load_desktop_settings");
-  return {taskbar:{desktop:{accent:"blur",color:"#000000",opacity:0,showLine:true},maximized:null,startOpen:null},wallpaper:{items:[{id:"builtin:carousel",title:"自动轮播",preview:null,scene:null},{id:"builtin:night",title:"夜色",preview:null,scene:"night"},{id:"builtin:sea",title:"海色",preview:null,scene:"sea"},{id:"builtin:dawn",title:"晨光",preview:null,scene:"dawn"}],selected:null,intervalMinutes:5,volume:0,canRestore:false}};
+  return {taskbar:{desktop:{accent:"blur",color:"#000000",opacity:0,showLine:true},maximized:null,startOpen:null},wallpaper:{items:[{id:"builtin:night",title:"夜色",preview:null,scene:"night"},{id:"builtin:sea",title:"海色",preview:null,scene:"sea"},{id:"builtin:dawn",title:"晨光",preview:null,scene:"dawn"}],selected:null,intervalMinutes:5,volume:0,canRestore:false}};
 }
 export const applyTaskbarSettings = (settings:TaskbarSettings)=>invoke<ActionResult>("apply_taskbar_settings",{settings});
 export const selectWallpaper = (id:string,minutes:number)=>invoke<ActionResult>("select_wallpaper",{id,minutes});
 export const setWallpaperVolume = (volume:number)=>invoke<ActionResult>("set_wallpaper_volume",{volume});
+
+export const openHomepage = (kind: "author" | "project") => invoke<void>("open_homepage", { kind });

@@ -15,6 +15,7 @@ mod menu_dictionary;
 mod menu_icon;
 mod menu_policy;
 mod models;
+mod normal_restore;
 mod optimization;
 mod optional_tools;
 mod preset_data;
@@ -23,6 +24,7 @@ mod repair;
 mod shell_engine;
 mod taskbar;
 mod transaction;
+mod tray;
 mod ui_fonts;
 mod visual;
 mod visual_diagnostics;
@@ -161,11 +163,51 @@ async fn optimize_system(restore: bool) -> Result<ActionResult, String> {
     .map_err(|e| format!("{e:#}"))
 }
 #[tauri::command]
+async fn restore_normal() -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(normal_restore::run)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
 async fn optimize_menu() -> Result<ActionResult, String> {
     tauri::async_runtime::spawn_blocking(|| worker::run(Operation::OptimizeMenu))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("{e:#}"))
+}
+
+fn homepage_url(kind: &str) -> anyhow::Result<&'static str> {
+    match kind {
+        "author" => Ok("https://github.com/soberbw-hash"),
+        "project" => Ok("https://github.com/soberbw-hash/WinGlow"),
+        _ => anyhow::bail!("未知主页入口。"),
+    }
+}
+#[tauri::command]
+fn open_homepage(app: tauri::AppHandle, kind: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let url = homepage_url(&kind).map_err(|e| e.to_string())?;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod homepage_tests {
+    #[test]
+    fn homepage_links_are_fixed_and_unknown_targets_are_rejected() {
+        assert_eq!(
+            super::homepage_url("author").unwrap(),
+            "https://github.com/soberbw-hash"
+        );
+        assert_eq!(
+            super::homepage_url("project").unwrap(),
+            "https://github.com/soberbw-hash/WinGlow"
+        );
+        assert!(super::homepage_url("https://example.com").is_err());
+    }
 }
 
 #[tauri::command]
@@ -190,7 +232,13 @@ pub fn run() {
     if desktop_access::handle_probe() {
         return;
     }
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    if !std::env::args().any(|a| matches!(a.as_str(), "--verify-updater" | "--verify-tray")) {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            tray::show(app)
+        }));
+    }
+    builder
         .setup(|app| {
             if std::env::args().any(|arg| arg == "--verify-updater") {
                 use tauri::Manager;
@@ -198,6 +246,10 @@ pub fn run() {
                     let _ = window.hide();
                 }
                 tauri::async_runtime::spawn(app_update::diagnose(app.handle().clone()));
+                return Ok(());
+            }
+            tray::setup(app)?;
+            if tray::probe(app) {
                 return Ok(());
             }
             {
@@ -248,7 +300,9 @@ pub fn run() {
             repair_progress,
             optimize_system,
             optimize_menu,
+            restore_normal,
             open_backup,
+            open_homepage,
             update_status,
             check_updates,
             install_update,
@@ -270,6 +324,7 @@ pub fn run() {
 fn resume_desktop_components() -> anyhow::Result<()> {
     let _guard = worker::optimization_lock()?;
     shell_engine::ensure_ready()?;
+    optional_tools::stop_legacy_rotation()?;
     if optimization::state()?.0 {
         font_engine::repair_ui_font_sizes()?;
     }

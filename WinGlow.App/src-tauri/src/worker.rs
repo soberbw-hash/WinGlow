@@ -309,6 +309,7 @@ fn dispatch(operation: Operation) -> Result<ActionResult> {
         Operation::RollbackUpgrade { token } => crate::optimization::rollback_upgrade_core(&token),
         Operation::OptimizeMenu => crate::optimization::menu_only(),
         Operation::TaskbarSettings { settings } => crate::desktop_settings::apply_taskbar(settings),
+        Operation::RestoreNormal => crate::normal_restore::core(),
         Operation::Repair => crate::repair::run(),
         font_operation => font_engine::perform(font_operation),
     }
@@ -336,7 +337,7 @@ pub fn handle_cli() -> bool {
     let args: Vec<_> = env::args().collect();
     if args.iter().any(|a| a == "--wallpaper-host") {
         if let Err(error) = crate::optional_tools::carousel_host() {
-            eprintln!("壁纸轮播未完成：{error:#}");
+            eprintln!("壁纸后台启动未完成：{error:#}");
         }
         return true;
     }

@@ -2,6 +2,44 @@
 //! --finish-one-click-effects is explicit real-desktop acceptance only.
 include!("../src/lib.rs");
 fn main() {
+    if std::env::args().any(|a| a == "--verify-wallpaper-default") {
+        let result = optional_tools::wallpaper_library().and_then(|library| {
+            let card = library
+                .items
+                .iter()
+                .find(|card| card.title == "Rain")
+                .ok_or_else(|| anyhow::anyhow!("Rain is missing from the installed library"))?;
+            Ok(serde_json::json!({"success":true,"title":card.title,"id":card.id,"written":false}))
+        });
+        println!(
+            "{}",
+            match result {
+                Ok(value) => value,
+                Err(error) => serde_json::json!({"success":false,"error":format!("{error:#}")}),
+            }
+        );
+        return;
+    }
+    if std::env::args().any(|a| a == "--verify-normal-plan") {
+        let result = normal_restore::plan().and_then(|entries| {
+            registry::validate_entries(&entries)?;
+            anyhow::ensure!(
+                entries
+                    .iter()
+                    .filter(|e| e.slot.scope == registry::Scope::Startup)
+                    .all(|e| e.value.is_none())
+            );
+            Ok(serde_json::json!({"success":true,"slots":entries.len(),"written":false}))
+        });
+        println!(
+            "{}",
+            match result {
+                Ok(v) => v,
+                Err(e) => serde_json::json!({"success":false,"error":format!("{e:#}")}),
+            }
+        );
+        return;
+    }
     if std::env::args().any(|arg| arg == "--resume-breeze") {
         let result = breeze::sync();
         println!(

@@ -276,7 +276,7 @@ pub fn toggle_menu(id: &str, enabled: bool) -> Result<ActionResult> {
     commit("menu:toggle", entries, || Ok(()))
 }
 
-fn belongs_to_category(slot: &Slot, category: &str) -> bool {
+pub(crate) fn belongs_to_category(slot: &Slot, category: &str) -> bool {
     match (&slot.scope, category) {
         (Scope::Startup, "menu") => matches!(
             slot.name.as_str(),

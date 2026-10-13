@@ -124,6 +124,15 @@ fn session() -> Result<Option<Session>> {
         Err(e) => Err(e.into()),
     }
 }
+pub(crate) fn clear_session() -> Result<()> {
+    if let Some(s) = session()? {
+        fs::remove_file(marker()?)?;
+        if done(&s.token)?.is_file() {
+            fs::remove_file(done(&s.token)?)?;
+        }
+    }
+    Ok(())
+}
 pub fn state() -> Result<(bool, bool)> {
     if let Some(s) = session()? {
         Ok((true, !done(&s.token)?.exists()))
@@ -464,7 +473,7 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
         Err(error) => Err(error),
     };
     match wallpaper_result {
-        Ok(()) => result.message.push_str(" 已开启动态壁纸轮播。"),
+        Ok(()) => result.message.push_str(" 已开启动态壁纸。"),
         Err(error) => result.message.push_str(&format!(
             " 动态壁纸未完成：{error:#}。字体和菜单优化已保留，可在基础美化页重试壁纸。"
         )),
