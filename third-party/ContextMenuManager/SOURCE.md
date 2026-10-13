@@ -9,4 +9,4 @@ WinGlow imports only the unmodified `GuidInfosDic.ini` metadata from [BluePointL
 
 The bundled dictionary provides offline GUID names and icon locations. WinGlow's own parser accepts only Text, zh-CN-Text, ResText and Icon. It resolves icons through local resources, does not execute extensions, does not import commands, and never uses downloaded names to drive automatic menu cleanup. The metadata cannot introduce writable registry paths.
 
-Background checks occur at most once per day using the fixed upstream HTTPS raw URL. A valid UTF-8 response, limited to 256 KiB and a bounded number of GUID records, is saved atomically. Failed or truncated downloads preserve the existing cache. The previous cache is retained as `previous.ini`; the local source record contains URL, SHA-256 and entry count. Menu state and backups stay entirely on the user's PC.
+The metadata is bundled with WinGlow and updates only with application releases. No independent download or daily background check runs. Existing cache files are preserved but no longer override the bundled catalog. Menu state and backups stay entirely on the user's PC.

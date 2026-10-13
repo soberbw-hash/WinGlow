@@ -1,18 +1,9 @@
 //! Read-only GUID metadata. Network data can name/icon a registration, never create commands
-//! or decide cleanup. Keep a bundled fallback and validate a download before replacement.
+//! or decide cleanup. Metadata is bundled and updates only with WinGlow releases.
 use anyhow::{Result, bail};
-use sha2::{Digest, Sha256};
-use std::{
-    collections::HashMap,
-    fs,
-    io::Read,
-    path::PathBuf,
-    sync::{OnceLock, RwLock},
-    time::Duration,
-};
+use std::{collections::HashMap, path::PathBuf, sync::OnceLock};
 
 const BUNDLED: &str = include_str!("../../../third-party/ContextMenuManager/GuidInfosDic.ini");
-const URL: &str = "https://raw.githubusercontent.com/BluePointLilac/ContextMenuManager/master/ContextMenuManager/Properties/Resources/Texts/GuidInfosDic.ini";
 const LIMIT: usize = 256 * 1024;
 #[derive(Clone, Default)]
 pub struct Info {
@@ -22,7 +13,7 @@ pub struct Info {
     icon: String,
 }
 type Catalog = HashMap<String, Info>;
-static CACHE: OnceLock<RwLock<Catalog>> = OnceLock::new();
+static CACHE: OnceLock<Catalog> = OnceLock::new();
 fn normalized(guid: &str) -> Option<String> {
     uuid::Uuid::parse_str(guid.trim().trim_matches(['{', '}']))
         .ok()
@@ -69,30 +60,11 @@ fn parse(text: &str) -> Result<Catalog> {
     }
     Ok(result)
 }
-fn root() -> Result<PathBuf> {
-    Ok(crate::font_engine::data_root()?.join("MenuDictionary"))
-}
-fn catalog() -> &'static RwLock<Catalog> {
-    CACHE.get_or_init(|| {
-        let downloaded = root()
-            .ok()
-            .and_then(|p| read_cache(&p.join("GuidInfosDic.ini")).ok())
-            .and_then(|s| parse(&s).ok());
-        let mut bundled = parse(BUNDLED).expect("bundled dictionary was validated at build/test");
-        if let Some(downloaded) = downloaded {
-            bundled.extend(downloaded);
-        }
-        RwLock::new(bundled)
-    })
-}
-fn read_cache(path: &std::path::Path) -> Result<String> {
-    if fs::metadata(path)?.len() > LIMIT as u64 {
-        bail!("菜单识别库过大。");
-    }
-    Ok(fs::read_to_string(path)?)
+fn catalog() -> &'static Catalog {
+    CACHE.get_or_init(|| parse(BUNDLED).expect("bundled dictionary was validated at build/test"))
 }
 pub fn lookup(guid: &str) -> Option<Info> {
-    catalog().read().ok()?.get(&normalized(guid)?).cloned()
+    catalog().get(&normalized(guid)?).cloned()
 }
 fn resource_path(raw: &str, server: Option<&str>) -> Option<String> {
     let raw = raw.trim().trim_start_matches('@');
@@ -146,64 +118,6 @@ impl Info {
             .filter(|_| !self.icon.is_empty())
             .and_then(|p| crate::menu_icon::extract(&p))
     }
-}
-pub fn update_if_due() {
-    let due = root()
-        .ok()
-        .and_then(|r| fs::metadata(r.join("checked")).ok())
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.elapsed().ok())
-        .is_none_or(|elapsed| elapsed >= Duration::from_secs(86400));
-    if due {
-        let _ = refresh();
-    }
-}
-pub fn refresh() -> Result<crate::models::ActionResult> {
-    let dir = root()?;
-    fs::create_dir_all(&dir)?;
-    // An attempted check is bounded to once daily even when the network is unavailable.
-    fs::write(dir.join("checked"), b"checked")?;
-    let response = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?
-        .get(URL)
-        .send()?
-        .error_for_status()?;
-    let mut bytes = Vec::new();
-    response.take(LIMIT as u64 + 1).read_to_end(&mut bytes)?;
-    let text = std::str::from_utf8(&bytes)?;
-    let downloaded = parse(text)?;
-    let target = dir.join("GuidInfosDic.ini");
-    if let Ok(old) = read_cache(&target) {
-        if old.as_bytes() == bytes {
-            return Ok(crate::models::ActionResult {
-                message: "菜单识别库已是最新。".into(),
-            });
-        }
-        // Save the previous metadata before replacement; no Windows settings are written.
-        let history = dir.join("previous.ini");
-        let temp = dir.join(format!("{}.tmp", uuid::Uuid::new_v4()));
-        crate::transaction::persist_new(&temp, old.as_bytes())?;
-        crate::worker::replace_file(&temp, &history)?;
-    }
-    let temp = dir.join(format!("{}.tmp", uuid::Uuid::new_v4()));
-    crate::transaction::persist_new(&temp, &bytes)?;
-    crate::worker::replace_file(&temp, &target)?;
-    fs::write(
-        dir.join("source.json"),
-        serde_json::to_vec_pretty(
-            &serde_json::json!({"url":URL,"sha256":format!("{:x}",Sha256::digest(&bytes)),"entries":downloaded.len()}),
-        )?,
-    )?;
-    let mut merged = parse(BUNDLED)?;
-    merged.extend(downloaded);
-    *catalog()
-        .write()
-        .map_err(|_| anyhow::anyhow!("菜单识别库正在加载。"))? = merged;
-    Ok(crate::models::ActionResult {
-        message: "菜单识别库已更新。".into(),
-    })
 }
 #[cfg(test)]
 mod tests {

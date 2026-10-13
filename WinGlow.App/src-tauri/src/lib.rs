@@ -269,7 +269,6 @@ pub fn run() {
                 }
             }
             explorer::watch_shell();
-            std::thread::spawn(menu_dictionary::update_if_due);
             std::thread::spawn(|| {
                 let result = optimization::update_on_startup()
                     .and_then(|upgrade| resume_desktop_components().map(|_| upgrade));
@@ -315,7 +314,6 @@ pub fn run() {
             choose_wallpaper,
             optimization_upgrade_status,
             retry_optimization_upgrade,
-            refresh_menu_dictionary
         ])
         .run(tauri::generate_context!())
         .expect("启动 WinGlow失败");
@@ -460,11 +458,4 @@ async fn choose_wallpaper(app: tauri::AppHandle) -> Result<ActionResult, String>
     })
     .await
     .map_err(|e| e.to_string())?
-}
-#[tauri::command]
-async fn refresh_menu_dictionary() -> Result<ActionResult, String> {
-    tauri::async_runtime::spawn_blocking(menu_dictionary::refresh)
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| format!("识别库更新未完成，继续使用已有识别库：{e:#}"))
 }

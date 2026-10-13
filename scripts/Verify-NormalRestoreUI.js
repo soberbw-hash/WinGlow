@@ -29,6 +29,7 @@ async page => {
   await page.getByRole("button", { name: "作者主页 ↗", exact: true }).click();
   await page.getByRole("button", { name: "项目主页 ↗", exact: true }).click();
   if (JSON.stringify(await page.evaluate(() => window.restoreProbe.links)) !== JSON.stringify(["author", "project"])) throw Error("Homepage links did not dispatch the right target");
+  if (await page.getByText("菜单识别库", { exact: true }).count()) throw Error("Standalone dictionary settings remain");
   const restore = page.getByRole("button", { name: "一键还原", exact: true });
   await restore.click();
   await page.getByRole("button", { name: "取消", exact: true }).click();

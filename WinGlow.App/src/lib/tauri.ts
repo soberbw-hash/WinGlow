@@ -41,7 +41,6 @@ export const restoreNormal = () => invoke<ActionResult>("restore_normal");
 export const optimizeMenu = () => invoke<ActionResult>("optimize_menu");
 export const openBackup = () => invoke<void>("open_backup");
 export const optionalTool = (id: string, action: "install" | "open" | "remove" | "enable" | "disable" | "system-taskbar") => invoke<ActionResult>("optional_tool", { id, action });
-export const refreshMenuDictionary = () => invoke<ActionResult>("refresh_menu_dictionary");
 
 export const chooseWallpaper = () => invoke<ActionResult>("choose_wallpaper");
 export const optimizationUpgradeStatus = () => invoke<{running:boolean;finished:boolean;message:string;error:boolean}>("optimization_upgrade_status");

@@ -9,7 +9,7 @@ import { VisualSettings } from "./components/VisualSettings";
 import { TaskbarControls, WallpaperControls } from "./components/DesktopSettings";
 import appIcon from "./assets/app-icon.png";
 import { cn } from "./lib/cn";
-import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, restoreNormal, optimizeSystem, optimizeMenu, optionalTool, loadDesktopSettings, optimizationUpgradeStatus, retryOptimizationUpgrade, refreshMenuDictionary, openHomepage } from "./lib/tauri";
+import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, restoreNormal, optimizeSystem, optimizeMenu, optionalTool, loadDesktopSettings, optimizationUpgradeStatus, retryOptimizationUpgrade, openHomepage } from "./lib/tauri";
 import type { BootstrapPayload, PageId, ShellState, ActionResult, DesktopSettings } from "./types";
 
 const pages = [
@@ -204,7 +204,6 @@ export default function App() {
               <button className="button secondary" disabled={!desktop} onClick={() => void openHomepage("project").catch(error => setNotice({ text: `打开主页失败：${String(error)}`, error: true }))}>项目主页 ↗</button>
             </div>
           </section>
-          <div className="dictionary-settings"><span>菜单识别库</span><button className="button secondary" disabled={blocked} onClick={() => void mutate(refreshMenuDictionary)}>检查更新</button></div>
           {upgradeError && <div className="notice" role="status"><p>桌面初始化或优化方案更新未完成，可以在这里重试。</p><button className="button secondary" disabled={blocked} onClick={() => void mutate(async () => { const result = await retryOptimizationUpgrade(); setUpgradeError(false); return result; })}>重试初始化</button></div>}
         </>}
       {pendingRecovery && <div className="notice error" role="alert"><p>{bootstrap?.pendingRecovery || "上次修改没有完成，请先还原。"}</p><button className="button secondary" disabled={busy || loading || upgrading || !desktop} onClick={() => void mutate(recoverPending)}>{busy ? "正在恢复…" : "恢复未完成修改"}</button></div>}

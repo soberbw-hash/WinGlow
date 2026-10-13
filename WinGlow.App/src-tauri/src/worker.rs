@@ -432,7 +432,6 @@ pub fn handle_cli() -> bool {
     }
     if args.iter().any(|a| a == "--verify-menu") {
         let result = (|| -> Result<()> {
-            let dictionary_update = crate::menu_dictionary::refresh();
             let items = crate::menu::scan()?;
             fs::write(
                 font_engine::data_root()?.join("menu-snapshot.json"),
@@ -444,7 +443,7 @@ pub fn handle_cli() -> bool {
                     *targets.entry(target.clone()).or_default() += 1;
                 }
             }
-            let report = serde_json::json!({"success":true,"items":items.len(),"withIcons":items.iter().filter(|i| i.0.icon_data_url.is_some()).count(),"targets":targets,"dictionaryUpdated":dictionary_update.is_ok(),"dictionaryError":dictionary_update.err().map(|e|format!("{e:#}"))});
+            let report = serde_json::json!({"success":true,"items":items.len(),"withIcons":items.iter().filter(|i| i.0.icon_data_url.is_some()).count(),"targets":targets,"dictionarySource":"bundled"});
             fs::write(
                 font_engine::data_root()?.join("menu-verification.json"),
                 serde_json::to_vec_pretty(&report)?,
