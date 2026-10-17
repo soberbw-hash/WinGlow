@@ -6,9 +6,9 @@ WinGlow 把字体、右键菜单、任务栏、窗口背景和开始菜单集中
 
 ## 下载
 
-[**下载最新版安装包 · v1.1.16（Windows x64）**](https://github.com/soberbw-hash/WinGlow/releases/download/v1.1.16/WinGlow_1.1.16_x64-setup.exe)
+[**下载最新版安装包 · v1.1.17（Windows x64）**](https://github.com/soberbw-hash/WinGlow/releases/download/v1.1.17/WinGlow-1.1.17-Setup.exe)
 
-[安装包 SHA-256](https://github.com/soberbw-hash/WinGlow/releases/download/v1.1.16/WinGlow-1.1.16-SHA256.txt) · [更新说明与校验文件](https://github.com/soberbw-hash/WinGlow/releases/latest)
+[安装包 SHA-256](https://github.com/soberbw-hash/WinGlow/releases/download/v1.1.17/SHA256SUMS.txt) · [更新说明与校验文件](https://github.com/soberbw-hash/WinGlow/releases/latest)
 
 推荐使用安装版，方便创建快捷方式和后续更新。支持 Windows 10 / 11 x64，应用需要 WebView2；任务栏美化需要 Windows 11，窗口材质需要 Windows 11 22H2 或更高版本。各项功能会根据系统支持情况开放。
 
@@ -16,7 +16,7 @@ WinGlow 把字体、右键菜单、任务栏、窗口背景和开始菜单集中
 
 ## 功能
 
-- **一键优化**：默认鸿蒙粗体，隐藏快捷方式箭头和盾牌角标，精简右键菜单，启用 Breeze、TranslucentTB 模糊与细线、窗口磨砂及开始菜单美化。核心方案先完成，动态壁纸引擎可在之后选择下载（约 218 MB），不会阻塞一键优化。
+- **一键优化**：默认鸿蒙粗体，隐藏快捷方式箭头和盾牌角标，精简右键菜单，启用 Breeze、TranslucentTB 模糊与细线、窗口磨砂及开始菜单美化。Breeze 会应用简体中文、默认主题与动画、亚克力、快捷键和 ExplorerFrame Patch 设置，并按用户选定顺序加载六个已安装插件；插件脚本仍由 Breeze 市场安装。核心方案先完成，动态壁纸引擎可在之后选择下载（约 218 MB），不会阻塞一键优化。
 - **字体**：内置 HarmonyOS Sans（标准 / 粗）、思源黑体和苹方。选择、比较更换前后、应用。
 - **右键菜单**：分为常用位置、文件类型、其他位置；补全此电脑、回收站、库和实际关联程序，支持按显示/隐藏筛选。显示程序图标；核对实际命令后合并重复注册，一个开关控制对应位置。只有真实可控子项才提供展开。
 - **菜单识别库**：内置 ContextMenuManager GUID 字典，补充菜单名称及图标，随 WinGlow 版本更新。离线可用，不单独检查更新，不改变开关或自动执行菜单命令。
@@ -30,6 +30,13 @@ WinGlow 把字体、右键菜单、任务栏、窗口背景和开始菜单集中
 
 字体单独应用和还原可能需要刷新资源管理器，桌面与任务栏会短暂消失，文件夹窗口可能关闭。完整一键优化集中完成设置后再统一刷新；菜单切换、一键精简和菜单还原不主动重启桌面。刷新前暂停自有组件，桌面稳定后恢复已启用效果。部分应用需重新打开或注销才能使用新字体。
 
+## v1.1.17 更新
+
+- 一键优化按你选定的 Breeze 配置应用简体中文、默认主题、动画和六个已安装插件的顺序，并纳入备份与撤销。
+- 右键菜单页新增 Breeze 设置按钮，直接打开 Breeze Config 可视化设置窗口。
+- 基础美化页面改为紧凑布局，任务栏与壁纸细项可展开；隐藏快捷方式箭头后会通知资源管理器刷新图标。
+- 深色内置壁纸使用深色系统模式和浅色应用模式，避免任务栏时间融入背景；自定义壁纸保留现有颜色设置。
+- 优化过程显示阶段和进度；附带开发版启动入口，双击即可运行本地开发版本。
 ## v1.1.16 更新
 
 - 深色动态壁纸自动使用 Windows 深色模式和应用浅色模式；切换或关闭壁纸后恢复原来的颜色设置。

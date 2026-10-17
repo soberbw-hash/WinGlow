@@ -1,6 +1,7 @@
 mod app_update;
 mod archive_filter;
 mod breeze;
+mod breeze_profile;
 mod component_runtime;
 mod desktop;
 mod desktop_access;
@@ -225,6 +226,17 @@ async fn open_backup(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("无法打开备份文件夹：{e}"))
 }
 
+#[tauri::command]
+async fn open_breeze_config() -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(breeze::open_config_window)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))?;
+    Ok(ActionResult {
+        message: "已打开 Breeze Config 可视化设置窗口。".into(),
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if worker::handle_cli() {
@@ -307,6 +319,7 @@ pub fn run() {
             optimize_menu,
             restore_normal,
             open_backup,
+            open_breeze_config,
             open_homepage,
             update_status,
             check_updates,

@@ -32,7 +32,10 @@ static APPLY_PROGRESS: LazyLock<Mutex<ApplyProgress>> = LazyLock::new(|| {
     })
 });
 pub fn apply_progress() -> ApplyProgress {
-    APPLY_PROGRESS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    APPLY_PROGRESS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 fn set_apply_progress(percent: u8, stage: &str) {
     let mut progress = APPLY_PROGRESS.lock().unwrap_or_else(|e| e.into_inner());
@@ -188,6 +191,7 @@ pub fn core(token: &str) -> Result<ActionResult> {
     shell_engine::ensure_ready()?;
     let mut entries = menu_policy::plan()?;
     entries.extend(shell_engine::overlay_plan()?);
+    entries.extend(crate::breeze_profile::plan()?);
     entries.extend(breeze::startup_entries()?);
     if taskbar::supported() {
         entries.extend(taskbar::plan()?);
@@ -687,4 +691,3 @@ mod tests {
         assert!(!error.contains("已撤销本次修改"));
     }
 }
-

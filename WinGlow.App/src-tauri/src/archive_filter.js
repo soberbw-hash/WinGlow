@@ -1,5 +1,25 @@
 import { menu_controller, fs, breeze } from "mshell";
 
+// WinGlow can ask the running Breeze runtime to open its native visual settings
+// window. Breeze exposes that page only inside its injected JavaScript runtime.
+try {
+  const dataDirectory = breeze.data_directory();
+  fs.watch(dataDirectory, path => {
+    const name = String(path).replaceAll("\\", "/").split("/").pop();
+    const match = /^WinGlow-Open-Config-([0-9a-f-]{36})\.request$/i.exec(name ?? "");
+    if (!match) return;
+    const requestPath = `${dataDirectory}/${name}`;
+    const responsePath = `${requestPath}.done`;
+    try {
+      const requestId = fs.read(requestPath).trim();
+      fs.remove(requestPath);
+      if (requestId !== match[1] || typeof globalThis.showConfigPage !== "function") return;
+      globalThis.showConfigPage();
+      fs.write(responsePath, requestId);
+    } catch {}
+  });
+} catch {}
+
 // Read data on each menu opening. Changing a switch must not reset Breeze's
 // QuickJS runtime and invalidate callbacks still owned by an open menu.
 let hiddenRules = { exact: [], patterns: [], enabled: [] };

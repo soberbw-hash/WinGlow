@@ -188,4 +188,3 @@ fn notify_windows_theme() {
         );
     }
 }
-

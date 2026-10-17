@@ -41,6 +41,7 @@ export const optimizeProgress = () => invoke<OptimizationProgress>("optimize_pro
 export const restoreNormal = () => invoke<ActionResult>("restore_normal");
 export const optimizeMenu = () => invoke<ActionResult>("optimize_menu");
 export const openBackup = () => invoke<void>("open_backup");
+export const openBreezeConfig = () => invoke<ActionResult>("open_breeze_config");
 export const optionalTool = (id: string, action: "install" | "open" | "remove" | "enable" | "disable" | "system-taskbar") => invoke<ActionResult>("optional_tool", { id, action });
 
 export const chooseWallpaper = () => invoke<ActionResult>("choose_wallpaper");

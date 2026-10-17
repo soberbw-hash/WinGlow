@@ -4,6 +4,24 @@ import assert from "node:assert/strict";
 const code = readFileSync(new URL("../WinGlow.App/src-tauri/src/archive_filter.js", import.meta.url), "utf8").replace(/import .*;\r?\n/, "").replace("export function", "function");
 let listener;
 vm.runInNewContext(code, { menu_controller: { add_menu_listener: fn => { listener = fn; } } });
+let watchCallback, configOpened = 0, requestRemoved = false, configAck;
+const configId = "12345678-1234-4abc-8def-1234567890ab";
+vm.runInNewContext(code, {
+  menu_controller: { add_menu_listener() {} },
+  fs: {
+    watch: (_directory, callback) => { watchCallback = callback; },
+    read: path => path.endsWith(".request") ? configId : "",
+    remove: path => { if (path.endsWith(".request")) requestRemoved = true; },
+    write: (path, value) => { configAck = [path, value]; },
+  },
+  breeze: { data_directory: () => "C:/Users/test/.breeze-shell" },
+  showConfigPage: () => { configOpened += 1; },
+});
+watchCallback(`C:/Users/test/.breeze-shell/WinGlow-Open-Config-${configId}.request`, 0);
+assert.equal(configOpened, 1, "A valid request must open Breeze's visual settings window");
+assert.equal(requestRemoved, true, "Handled requests should be removed");
+assert.deepEqual(configAck, [`C:/Users/test/.breeze-shell/WinGlow-Open-Config-${configId}.request.done`, configId]);
+console.log("Breeze settings request opens the visual config window and acknowledges the request.");
 function menu(names) {
   return { items: names.map(name => ({ value: { name }, removed: false, data() { return this.value; }, remove() { this.removed = true; }, update_data(data) { Object.assign(this.value, data); } })) };
 }

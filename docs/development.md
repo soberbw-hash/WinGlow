@@ -22,6 +22,7 @@ Rust stable，edition 2024，最低 1.88；Tauri 2.12.1 稳定版、React 19.3�
 - `desktop.rs`：通过 COM 修改桌面文字显示，记录实时状态，不重命名文件。
 - `explorer.rs`：字体应用、普通字体还原、撤销最近修改成功后重启当前桌面的资源管理器，并验证桌面重新出现。
 - `breeze.rs`：固定版本外部引擎下载校验、匹配当前桌面权限的启动与关闭。
+- `breeze_profile.rs`：一键优化将用户选定的 Breeze 设置及六个已安装插件的加载顺序写入同一备份事务；不打包或安装第三方市场插件，撤销优化会还原优化前的 Breeze 配置。
 - `desktop_access.rs`：读取当前桌面与软件的账户 SID、完整性级别；同账户单独提权启动时自动使用桌面令牌重新打开界面，权限一致的管理员桌面允许运行。不修改 UAC；管理员 worker 与材质 host 不经过 GUI 重新启动分支。
 - `repair.rs`：DISM / SFC 日志、失败报告与默认系统字体注册修复。
 - `legacy.rs`：选择性读取 v2 REG 备份，不执行 reg import。

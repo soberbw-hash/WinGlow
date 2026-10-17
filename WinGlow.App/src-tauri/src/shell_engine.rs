@@ -6,11 +6,12 @@ use crate::{
 };
 use anyhow::{Result, bail};
 use std::{collections::BTreeMap, fs};
-use windows::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify};
+use windows::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_FLUSH, SHCNF_IDLIST, SHChangeNotify};
 
 pub fn notify() {
     unsafe {
-        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None);
+        // Wait for Explorer to process the association change and invalidate its icon cache.
+        SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST | SHCNF_FLUSH, None, None);
     }
 }
 pub fn dword(value: u32) -> registry::StoredValue {
@@ -65,6 +66,9 @@ pub fn commit(
     activate: impl FnOnce() -> Result<()>,
 ) -> Result<ActionResult> {
     ensure_ready()?;
+    let icon_overrides_changed = entries
+        .iter()
+        .any(|entry| entry.slot.scope == Scope::IconOverrides);
     let desktop_before = if entries.iter().any(|e| e.slot.scope == Scope::DesktopView) {
         Some(crate::desktop::labels_hidden()?)
     } else {
@@ -80,7 +84,11 @@ pub fn commit(
     )?;
     notify();
     Ok(ActionResult {
-        message: "已保存。部分设置需要注销后生效。".into(),
+        message: if icon_overrides_changed {
+            "已保存并通知资源管理器刷新图标缓存；若图标仍未变化，请注销后再查看。盾牌角标受 Windows 版本限制。".into()
+        } else {
+            "已保存。部分设置需要注销后生效。".into()
+        },
     })
 }
 fn tweak_slot(id: &str) -> Result<Slot> {
@@ -96,11 +104,15 @@ fn tweak_slot(id: &str) -> Result<Slot> {
 pub fn load() -> Result<ShellState> {
     let mut tweaks = Vec::new();
     for (id, label, note) in [
-        ("shortcut-arrow", "隐藏快捷方式箭头", None),
+        (
+            "shortcut-arrow",
+            "隐藏快捷方式箭头",
+            Some("若桌面图标暂未更新，请注销后再查看。"),
+        ),
         (
             "shield-overlay",
             "隐藏盾牌角标",
-            Some("实验功能，部分 Windows 版本可能不生效。"),
+            Some("实验功能；Windows 版本或图标缓存可能影响显示，必要时注销后重试。"),
         ),
     ] {
         let value = WindowsRegistry.read(&tweak_slot(id)?)?;
@@ -295,6 +307,7 @@ pub(crate) fn belongs_to_category(slot: &Slot, category: &str) -> bool {
                 | Scope::MachineBlockedExtensions
                 | Scope::ArchiveFilter
                 | Scope::ArchiveFilterRules
+                | Scope::BreezeConfig
         ),
         (scope, "details") => matches!(
             scope,
@@ -519,6 +532,14 @@ mod tests {
         assert!(belongs_to_category(
             &registry::slot(Scope::ArchiveFilter, "script"),
             "menu"
+        ));
+        assert!(belongs_to_category(
+            &registry::slot(Scope::BreezeConfig, "config.json"),
+            "menu"
+        ));
+        assert!(!belongs_to_category(
+            &registry::slot(Scope::BreezeConfig, "config.json"),
+            "details"
         ));
         assert!(!belongs_to_category(
             &registry::slot(Scope::WindowMetrics, "IconFont"),

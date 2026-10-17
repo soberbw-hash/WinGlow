@@ -1364,4 +1364,3 @@ mod tests {
         assert_eq!(wallpaper_theme_mode("library:custom-dark-wallpaper"), None);
     }
 }
-

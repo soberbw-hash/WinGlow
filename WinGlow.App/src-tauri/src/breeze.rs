@@ -33,6 +33,29 @@ fn root() -> Result<PathBuf> {
 fn exe() -> Result<PathBuf> {
     Ok(root()?.join("breeze.exe"))
 }
+pub fn open_config_window() -> Result<()> {
+    if !running()? {
+        bail!("请先在“右键菜单”页面开启 Breeze 美化，再打开设置菜单。")
+    }
+    ensure_owned_runtime()?;
+    let data_dir = PathBuf::from(std::env::var_os("USERPROFILE").context("无法定位当前用户目录")?)
+        .join(".breeze-shell");
+    let id = uuid::Uuid::new_v4().to_string();
+    let request = data_dir.join(format!("WinGlow-Open-Config-{id}.request"));
+    let completed = data_dir.join(format!("WinGlow-Open-Config-{id}.request.done"));
+    fs::write(&request, &id).context("无法通知 Breeze 打开设置菜单")?;
+    let deadline = Instant::now() + Duration::from_secs(4);
+    while Instant::now() < deadline {
+        if fs::read_to_string(&completed).is_ok_and(|value| value == id) {
+            let _ = fs::remove_file(&completed);
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let _ = fs::remove_file(&request);
+    let _ = fs::remove_file(&completed);
+    bail!("Breeze 没有响应。请确认右键菜单页的 Breeze 美化已开启后重试。")
+}
 fn slot() -> registry::Slot {
     registry::slot(Scope::Startup, "WinGlow-Breeze")
 }
