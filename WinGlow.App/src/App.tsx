@@ -9,7 +9,7 @@ import { VisualSettings } from "./components/VisualSettings";
 import { TaskbarControls, WallpaperControls } from "./components/DesktopSettings";
 import appIcon from "./assets/app-icon.png";
 import { cn } from "./lib/cn";
-import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, restoreNormal, optimizeSystem, optimizeMenu, optionalTool, loadDesktopSettings, optimizationUpgradeStatus, retryOptimizationUpgrade, openHomepage } from "./lib/tauri";
+import { openBackup, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, restoreNormal, optimizeSystem, optimizeProgress, optimizeMenu, optionalTool, loadDesktopSettings, optimizationUpgradeStatus, retryOptimizationUpgrade, openHomepage } from "./lib/tauri";
 import type { BootstrapPayload, PageId, ShellState, ActionResult, DesktopSettings } from "./types";
 
 const pages = [
@@ -48,6 +48,8 @@ export default function App() {
   const [desktopSettingsError, setDesktopSettingsError] = useState("");
   const [selectedId, setSelectedId] = useState("harmonyos-sc-bold");
   const [busy, setBusy] = useState(false);
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizationProgress, setOptimizationProgress] = useState<{percent:number;stage:string}|null>(null);
   const [wallpaperPrompt, setWallpaperPrompt] = useState(false);
   const [wallpaperDownload, setWallpaperDownload] = useState(false);
   const [upgrading, setUpgrading] = useState(isTauri());
@@ -56,6 +58,7 @@ export default function App() {
   const mutationRunning = useRef(false);
   const upgradePolling = useRef(false);
   const repairPolling = useRef(false);
+  const optimizationPolling = useRef(false);
   const [loading, setLoading] = useState(true);
   const [repairing, setRepairing] = useState(false);
   const [repairStage, setRepairStage] = useState("");
@@ -131,6 +134,22 @@ export default function App() {
     const timer = window.setInterval(() => void poll(), 1000);
     return () => { live = false; window.clearInterval(timer); };
   }, [repairing, desktop]);
+  useEffect(() => {
+    if (!optimizing || !desktop) return;
+    let live = true;
+    const poll = async () => {
+      if (!live || optimizationPolling.current) return;
+      optimizationPolling.current = true;
+      try {
+        const progress = await optimizeProgress();
+        if (live && progress.running) setOptimizationProgress({percent:progress.percent,stage:progress.stage});
+      } catch { /* The operation result remains authoritative if progress IPC briefly fails. */ }
+      finally { optimizationPolling.current = false; }
+    };
+    const timer = window.setInterval(() => void poll(), 400);
+    void poll();
+    return () => { live = false; window.clearInterval(timer); };
+  }, [optimizing, desktop]);
   const selected = bootstrap?.presets.find(p => p.id === selectedId);
   const harmonySelected = selectedId === "harmonyos-sc" || selectedId === "harmonyos-sc-bold";
   const familyPresets = bootstrap?.presets.filter(p => p.id !== "harmonyos-sc-bold") ?? [];
@@ -148,7 +167,16 @@ export default function App() {
   }
   async function applyOneClick() {
     const needsWallpaperDownload = !shell?.optionalTools.some(tool => tool.id === "lively" && tool.installed);
-    if (await mutate(() => optimizeSystem()) && needsWallpaperDownload) setWallpaperPrompt(true);
+    setOptimizationProgress({percent:2,stage:"正在检查桌面环境"});
+    setOptimizing(true);
+    try {
+      const succeeded = await mutate(() => optimizeSystem());
+      if (succeeded) {
+        setOptimizationProgress({percent:100,stage:"优化完成"});
+        if (needsWallpaperDownload) setWallpaperPrompt(true);
+      }
+      window.setTimeout(() => setOptimizationProgress(null), 1800);
+    } finally { setOptimizing(false); }
   }
   async function downloadWallpaper() {
     setWallpaperPrompt(false);
@@ -183,6 +211,11 @@ export default function App() {
         <div className="home-actions"><button className="button primary optimize-button" disabled={blocked || !shell || shell.optimizationActive} title="核心优化完成后，可选择下载动态壁纸组件。完成后自动刷新资源管理器，文件窗口可能关闭。" onClick={() => void applyOneClick()}><Sparkles size={20} />{busy ? "正在处理…" : shell?.optimizationActive && !shell.optimizationPending ? "已优化" : "一键优化"}</button>
           {shell?.optimizationActive && !shell.optimizationPending && <button className="button secondary home-restore" disabled={!desktop || busy || loading || upgrading} onClick={() => void mutate(() => optimizeSystem(true))}><RotateCcw size={20} />撤销优化</button>}
         </div>
+        {optimizationProgress && (optimizing || optimizationProgress.percent === 100) && <div className="optimization-progress" role="status" aria-live="polite">
+          <div className="optimization-progress-label"><span>{optimizationProgress.stage}</span><span>{optimizationProgress.percent}%</span></div>
+          <progress max={100} value={optimizationProgress.percent} aria-label="一键优化进度" />
+          {optimizing && <p>正在处理，请稍候；首次使用可能需要下载组件。</p>}
+        </div>}
 
         {shell && !shell.taskbarSupported && <p className="home-support">透明任务栏需要 Windows 11。</p>}
       </section> : page === "fonts" ? <><h1>字体</h1>

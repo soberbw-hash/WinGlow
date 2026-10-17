@@ -164,6 +164,10 @@ async fn optimize_system(restore: bool) -> Result<ActionResult, String> {
     .map_err(|e| format!("{e:#}"))
 }
 #[tauri::command]
+fn optimize_progress() -> optimization::ApplyProgress {
+    optimization::apply_progress()
+}
+#[tauri::command]
 async fn restore_normal() -> Result<ActionResult, String> {
     tauri::async_runtime::spawn_blocking(normal_restore::run)
         .await
@@ -299,6 +303,7 @@ pub fn run() {
             repair_system,
             repair_progress,
             optimize_system,
+            optimize_progress,
             optimize_menu,
             restore_normal,
             open_backup,

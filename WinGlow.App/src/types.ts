@@ -26,3 +26,4 @@ export interface WallpaperCard { id:string; title:string; preview:string|null; s
 export interface DesktopSettings { taskbar:TaskbarSettings;  wallpaper:{items:WallpaperCard[];selected:string|null;intervalMinutes:number;volume:number;canRestore:boolean}; }
 export interface ShellState { items: MenuItem[]; tweaks: ToggleState[]; breezeEnabled: boolean; taskbarEnabled: boolean; taskbarSupported: boolean; startMenuEnabled: boolean; startMenuSupported: boolean; windowMaterialEnabled: boolean; windowMaterialSupported: boolean; appearance: Appearance; optionalTools: OptionalToolState[]; optimizationActive: boolean; optimizationPending: boolean; pendingRecovery: boolean; }
 export interface RepairProgress { running: boolean; stage: string; logDir: string; }
+export interface OptimizationProgress { running: boolean; percent: number; stage: string; }

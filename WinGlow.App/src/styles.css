@@ -170,6 +170,12 @@ h1 { font-size: 24px; line-height: 1.35; font-weight: 600; margin-bottom: 24px; 
 .home-intro p { color: var(--color-slate-600); font-size: 14px; line-height: 1.8; text-wrap: pretty; }
 .home-actions { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 34px; flex-wrap: wrap; }
 .home-actions > .button { width: 216px; min-height: 58px; font-size: 17px; padding: 12px 18px; }
+.optimization-progress { width: min(100%, 520px); margin: 18px auto 0; color: var(--color-slate-600); font-size: 13px; }
+.optimization-progress-label { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--brand-strong); font-weight: 600; }
+.optimization-progress progress { display: block; width: 100%; height: 10px; accent-color: var(--brand-accent); border: 0; border-radius: 999px; overflow: hidden; }
+.optimization-progress progress::-webkit-progress-bar { background: var(--brand-wash); border-radius: 999px; }
+.optimization-progress progress::-webkit-progress-value { background: repeating-linear-gradient(45deg,var(--brand-accent),var(--brand-accent) 8px,color-mix(in srgb,var(--brand-accent),white 24%) 8px,color-mix(in srgb,var(--brand-accent),white 24%) 16px); background-size: 32px 32px; border-radius: 999px; animation: optimize-progress-stripes .8s linear infinite; transition: width .35s ease; }
+@keyframes optimize-progress-stripes { to { background-position: 32px 0; } }
 .optimize-button { background: var(--brand-accent) !important; }
 .home-recovery,.home-support { margin-top: 18px; color: var(--color-slate-600); font-size: 13px; }
 .menu-auto-button { margin-left: auto; min-height: 34px; padding: 6px 12px; }

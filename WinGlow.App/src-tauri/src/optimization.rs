@@ -17,6 +17,40 @@ pub struct UpgradeStatus {
     pub message: String,
     pub error: bool,
 }
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyProgress {
+    pub running: bool,
+    pub percent: u8,
+    pub stage: String,
+}
+static APPLY_PROGRESS: LazyLock<Mutex<ApplyProgress>> = LazyLock::new(|| {
+    Mutex::new(ApplyProgress {
+        running: false,
+        percent: 0,
+        stage: String::new(),
+    })
+});
+pub fn apply_progress() -> ApplyProgress {
+    APPLY_PROGRESS.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+fn set_apply_progress(percent: u8, stage: &str) {
+    let mut progress = APPLY_PROGRESS.lock().unwrap_or_else(|e| e.into_inner());
+    progress.running = true;
+    progress.percent = percent.min(100);
+    progress.stage = stage.into();
+}
+fn finish_apply_progress(result: &Result<ActionResult>) {
+    let mut progress = APPLY_PROGRESS.lock().unwrap_or_else(|e| e.into_inner());
+    progress.running = false;
+    match result {
+        Ok(_) => {
+            progress.percent = 100;
+            progress.stage = "优化完成".into();
+        }
+        Err(_) => progress.stage = "优化未完成".into(),
+    }
+}
 static UPGRADE: LazyLock<Mutex<UpgradeStatus>> = LazyLock::new(|| {
     Mutex::new(UpgradeStatus {
         running: true,
@@ -307,7 +341,10 @@ pub fn apply() -> Result<ActionResult> {
     if session()?.is_some() {
         bail!("已有优化记录，请先撤销后再试。");
     }
-    apply_inner(None)
+    set_apply_progress(2, "正在检查桌面环境");
+    let result = apply_inner(None);
+    finish_apply_progress(&result);
+    result
 }
 pub fn update_if_due() -> Result<Option<ActionResult>> {
     let _guard = worker::optimization_lock()?;
@@ -342,11 +379,14 @@ fn migration_due(applied: &str, current: &str, completed: bool) -> bool {
     }
 }
 fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
+    set_apply_progress(5, "正在检查桌面环境");
     shell_engine::ensure_ready()?;
     // Dynamic wallpaper is a large optional download. Keep it out of one-click
     // optimization so core settings can finish without waiting on a 218 MB installer.
     // Preparation may download Breeze; no host settings change before all preparation succeeds.
+    set_apply_progress(12, "正在准备桌面美化组件，首次使用可能需要下载");
     breeze::prepare()?;
+    set_apply_progress(25, "正在检查任务栏和开始菜单组件");
     if taskbar::supported() {
         taskbar::prepare()?;
     }
@@ -354,6 +394,7 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
     if start_menu_applied {
         crate::visual::prepare_start()?;
     }
+    set_apply_progress(36, "正在备份当前设置");
     // The original baseline is for explicit undo. A failed upgrade must instead
     // restore the currently working profile, including the user's wallpaper.
     let prior_tokens = before
@@ -393,6 +434,7 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
     let mut refresh_message = String::new();
     finish_session(
         || {
+            set_apply_progress(48, "正在应用字体、右键菜单和图标设置");
             worker::run_inner(Operation::OptimizeCore {
                 token: s.token.clone(),
             })?;
@@ -401,6 +443,7 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
         || {
             // All registry changes are complete. Refresh once before starting
             // new effects/wallpaper, rather than starting and stopping them twice.
+            set_apply_progress(72, "正在刷新桌面与任务栏");
             refresh_message = crate::explorer::finish(
                 Ok(ActionResult {
                     message: String::new(),
@@ -409,6 +452,7 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
                 crate::explorer::restart,
             )?
             .message;
+            set_apply_progress(86, "正在启动桌面美化效果");
             if taskbar::supported() {
                 taskbar::sync()?;
             }
@@ -450,6 +494,7 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
             }
         },
     )?;
+    set_apply_progress(96, "正在保存优化结果");
     let mut result = ActionResult {
         message: format!("已优化字体、右键菜单、图标角标及桌面效果。{refresh_message}"),
     };

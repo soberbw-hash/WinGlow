@@ -5,4 +5,5 @@
 - Shows an explicit download and verification status while preparing the optional component.
 - Fixes first-time wallpaper activation by waiting for Lively to initialize its wallpaper library before selecting the default Rain wallpaper.
 - Dark wallpapers now use Windows dark mode with light app mode, improving taskbar clock contrast; WinGlow restores the previous color settings when wallpaper is disabled or restored.
+- One-click optimization now shows its current stage and progress while preparing components, applying settings, refreshing the desktop, and starting visual effects.
 

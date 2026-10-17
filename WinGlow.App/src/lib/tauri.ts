@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import type { ActionResult, BootstrapPayload, ShellState, RepairProgress, Appearance, DesktopSettings, TaskbarSettings } from "../types";
+import type { ActionResult, BootstrapPayload, ShellState, RepairProgress, OptimizationProgress, Appearance, DesktopSettings, TaskbarSettings } from "../types";
 // Browser previews cannot write Windows settings or report a simulated success.
 export async function loadBootstrap(): Promise<BootstrapPayload> {
   if (isTauri()) return invoke("load_bootstrap");
@@ -37,6 +37,7 @@ export const recoverPending = () => invoke<ActionResult>("recover_pending");
 export const repairSystem = () => invoke<ActionResult>("repair_system");
 export const repairProgress = () => invoke<RepairProgress>("repair_progress");
 export const optimizeSystem = (restore = false) => invoke<ActionResult>("optimize_system", { restore });
+export const optimizeProgress = () => invoke<OptimizationProgress>("optimize_progress");
 export const restoreNormal = () => invoke<ActionResult>("restore_normal");
 export const optimizeMenu = () => invoke<ActionResult>("optimize_menu");
 export const openBackup = () => invoke<void>("open_backup");
