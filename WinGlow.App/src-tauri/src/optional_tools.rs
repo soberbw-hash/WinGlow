@@ -1062,7 +1062,7 @@ pub fn select_wallpaper(id: String, minutes: u32) -> Result<ActionResult> {
     if id == "builtin:carousel" {
         bail!("自动轮播已移除，请直接选择一张壁纸。");
     }
-    let dark = wallpaper_uses_dark_mode(&id);
+    let dark = wallpaper_theme_mode(&id);
     let project = if let Some(scene) = id.strip_prefix("builtin:") {
         scene_project(scene, minutes)?
     } else {
@@ -1079,15 +1079,19 @@ pub fn select_wallpaper(id: String, minutes: u32) -> Result<ActionResult> {
             ],
         )?;
         wait_for_selection(exe, &project)?;
-        if dark {
-            crate::wallpaper_theme::use_dark_wallpaper_mode()
-        } else {
-            crate::wallpaper_theme::use_light_wallpaper_mode()
+        match dark {
+            Some(true) => crate::wallpaper_theme::use_dark_wallpaper_mode(),
+            Some(false) => crate::wallpaper_theme::use_light_wallpaper_mode(),
+            None => Ok(()),
         }
     })
 }
-fn wallpaper_uses_dark_mode(id: &str) -> bool {
-    !matches!(id.strip_prefix("builtin:"), Some("dawn"))
+fn wallpaper_theme_mode(id: &str) -> Option<bool> {
+    match id.strip_prefix("builtin:") {
+        Some("night" | "sea") => Some(true),
+        Some("dawn") => Some(false),
+        _ => None,
+    }
 }
 pub fn set_wallpaper_volume(volume: u8) -> Result<ActionResult> {
     if volume > 100 {
@@ -1199,7 +1203,7 @@ pub fn wallpaper_control(action: &str, path: Option<PathBuf>) -> Result<ActionRe
                     path.to_string_lossy().into_owned(),
                 ],
             )?;
-            crate::wallpaper_theme::use_dark_wallpaper_mode()
+            Ok(())
         });
     }
     let _guard = worker::optimization_lock()?;
@@ -1353,11 +1357,11 @@ mod tests {
     }
     #[test]
     fn dark_wallpapers_use_light_system_text_and_dawn_uses_light_windows_mode() {
-        assert!(wallpaper_uses_dark_mode("builtin:night"));
-        assert!(wallpaper_uses_dark_mode("builtin:sea"));
-        assert!(wallpaper_uses_dark_mode("builtin:carousel"));
-        assert!(!wallpaper_uses_dark_mode("builtin:dawn"));
-        assert!(wallpaper_uses_dark_mode("library:custom-dark-wallpaper"));
+        assert_eq!(wallpaper_theme_mode("builtin:night"), Some(true));
+        assert_eq!(wallpaper_theme_mode("builtin:sea"), Some(true));
+        assert_eq!(wallpaper_theme_mode("builtin:carousel"), None);
+        assert_eq!(wallpaper_theme_mode("builtin:dawn"), Some(false));
+        assert_eq!(wallpaper_theme_mode("library:custom-dark-wallpaper"), None);
     }
 }
 
