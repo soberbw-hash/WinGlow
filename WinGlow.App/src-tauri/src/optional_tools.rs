@@ -455,10 +455,10 @@ pub fn apply_wallpaper_optimization() -> Result<()> {
     WallpaperRefresh::capture()?.pause()?;
     clear_wallpaper_resume()?;
     new_lively_settings()?;
-    let first = carousel::first_project()?;
-    persist_startup_selection(&first)?;
     let exe = lively_executable()?;
     ensure_lively_started(&exe)?;
+    let first = wait_for_first_project()?;
+    persist_startup_selection(&first)?;
     carousel::stop()?;
     // A fresh/stopped library may have no monitor entries to rewrite. Starting
     // Lively only restores its saved layout, so explicitly select the default.
@@ -471,6 +471,21 @@ pub fn apply_wallpaper_optimization() -> Result<()> {
         ],
     )?;
     wait_for_selection(&exe, &first)
+}
+fn wait_for_first_project() -> Result<PathBuf> {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut last_error = None;
+    loop {
+        match carousel::first_project() {
+            Ok(project) => return Ok(project),
+            Err(error) => last_error = Some(error),
+        }
+        if Instant::now() >= deadline {
+            let error = last_error.context("默认 Rain 壁纸未出现在壁纸库中。")?;
+            bail!("动态壁纸库初始化超时：{error:#}");
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
 }
 fn wait_for_selection(exe: &Path, project: &Path) -> Result<()> {
     // Startup restores its saved wallpaper asynchronously. A momentary match
