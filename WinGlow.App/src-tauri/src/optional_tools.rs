@@ -1326,3 +1326,4 @@ mod tests {
         assert!(tool("explorer-patcher").is_err());
     }
 }
+

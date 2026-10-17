@@ -1,6 +1,6 @@
 # WinGlow 1.1.0 视觉集成
 
-这是 1.1.0 的历史设计与验收记录。后续动态壁纸已加入一键优化，默认材质与内部控制也有变化；1.1.12 已移除经典布局功能。当前行为以 [README](../README.md) 和 [1.1.12 检查记录](local-1.1.12-verification.md) 为准。
+这是 1.1.0 的历史设计与验收记录。后续动态壁纸曾加入一键优化，1.1.15 起恢复为可选组件并在核心优化完成后提示下载。默认材质与内部控制也有变化；1.1.12 已移除经典布局功能。当前行为以 [README](../README.md) 和相应版本检查记录为准。
 
 更新：2026-10-04。窗口磨砂与开始菜单美化加入一键优化，动态壁纸及经典布局仅作为可选功能。
 
@@ -35,3 +35,4 @@ DWMBlurGlass 2.3.1r 需要私有 DWM 注入及符号。本机 Windows 26H1 build
 - [Lively 命令控制](https://github.com/lively-community/lively/wiki/Command-Line-Controls)
 - [ExplorerPatcher 固定发行版](https://github.com/valinet/ExplorerPatcher/releases/tag/26100.8457.70.3)
 - [DWMBlurGlass](https://github.com/Maplespe/DWMBlurGlass)
+

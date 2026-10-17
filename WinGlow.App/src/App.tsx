@@ -48,6 +48,8 @@ export default function App() {
   const [desktopSettingsError, setDesktopSettingsError] = useState("");
   const [selectedId, setSelectedId] = useState("harmonyos-sc-bold");
   const [busy, setBusy] = useState(false);
+  const [wallpaperPrompt, setWallpaperPrompt] = useState(false);
+  const [wallpaperDownload, setWallpaperDownload] = useState(false);
   const [upgrading, setUpgrading] = useState(isTauri());
   const [upgradeError, setUpgradeError] = useState(false);
   const reloadSequence = useRef(0);
@@ -88,7 +90,17 @@ export default function App() {
         if (status.finished) {
           window.clearInterval(timer);
           setUpgradeError(status.error);
-          if (status.message) { setNotice({text:status.message,error:status.error}); await reload(); }
+          if (status.message) {
+            setNotice({text:status.message,error:status.error});
+            await reload();
+            if (!status.error && status.message.includes("动态壁纸可稍后单独下载")) {
+              try {
+                const currentShell = await loadShell();
+                setShell(currentShell);
+                if (!currentShell.optionalTools.some(tool => tool.id === "lively" && tool.installed)) setWallpaperPrompt(true);
+              } catch { /* Keep the core optimization result visible if optional tool state is unavailable. */ }
+            }
+          }
         }
       } catch { /* Retry transient IPC failures; never unlock a running mutation. */ }
       finally { upgradePolling.current = false; }
@@ -124,13 +136,25 @@ export default function App() {
   const familyPresets = bootstrap?.presets.filter(p => p.id !== "harmonyos-sc-bold") ?? [];
   const pendingRecovery = !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending;
   const blocked = !desktop || busy || upgrading || loading || pendingRecovery;
-  async function mutate(operation: () => Promise<ActionResult>) {
-    if (mutationRunning.current || busy || upgrading) return;
+  async function mutate(operation: () => Promise<ActionResult>): Promise<boolean> {
+    if (mutationRunning.current || busy || upgrading) return false;
     mutationRunning.current = true;
     setBusy(true); setNotice(null);
-    try { const result = await operation(); if (result.message) setNotice({ text: result.message, error: false }); }
+    let succeeded = false;
+    try { const result = await operation(); succeeded = true; if (result.message) setNotice({ text: result.message, error: false }); }
     catch (error) { setNotice({ text: String(error), error: true }); }
     finally { await reload(); mutationRunning.current = false; setBusy(false); }
+    return succeeded;
+  }
+  async function applyOneClick() {
+    const needsWallpaperDownload = !shell?.optionalTools.some(tool => tool.id === "lively" && tool.installed);
+    if (await mutate(() => optimizeSystem()) && needsWallpaperDownload) setWallpaperPrompt(true);
+  }
+  async function downloadWallpaper() {
+    setWallpaperPrompt(false);
+    setWallpaperDownload(true);
+    try { await mutate(() => optionalTool("lively", "install")); }
+    finally { setWallpaperDownload(false); }
   }
   async function applySelected() {
     if (!selected || busy) return;
@@ -144,7 +168,7 @@ export default function App() {
     if (desktop && !((busy || upgrading) && action === "close")) await getCurrentWindow()[action]();
   }
   function navigate(next: PageId) { setPage(next); setNotice(null); }
-  const optimizationEffects = shell ? <div className="settings-list">{[{ id: "transparent-taskbar", label: "透明任务栏", note: "柔和模糊背景，保留任务栏细线。", enabled: shell.taskbarEnabled, supported: shell.taskbarSupported }, { id: "window-material", label: "窗口背景", note: "调整支持窗口的标题栏与背景材质。应用的不透明内容区域不会变成磨砂。", enabled: shell.windowMaterialEnabled, supported: shell.windowMaterialSupported }, { id: "start-menu", label: "开始菜单美化", note: "调整开始菜单的磨砂背景、圆角与鸿蒙字体，保留原来的布局。背景浓度越低，越通透。", enabled: shell.startMenuEnabled, supported: shell.startMenuSupported }].map(effect => <section className="effect-section" key={effect.id}><div className="setting-row"><div><h2>{effect.label}</h2><p>{effect.supported ? effect.note : "当前 Windows 版本暂不支持。"}</p></div><Switch label={effect.label} checked={effect.enabled} disabled={blocked || !effect.supported} onChange={value => void mutate(() => setTweak(effect.id, value))} /></div>{effect.supported && (effect.id === "window-material" || effect.id === "start-menu") && <VisualSettings key={effect.id === "window-material" ? shell.appearance.material : `${shell.appearance.tint}-${shell.appearance.radius}`} id={effect.id} settings={shell.appearance} enabled={effect.enabled} disabled={blocked} onApply={settings => void mutate(() => setAppearance(effect.id, settings))} />}{effect.id === "transparent-taskbar" && desktopSettings && <TaskbarControls key={JSON.stringify(desktopSettings.taskbar)} settings={desktopSettings.taskbar} disabled={blocked || !effect.supported} run={mutate} />}</section>)}</div> : null;
+  const optimizationEffects = shell ? <div className="settings-list">{[{ id: "transparent-taskbar", label: "透明任务栏", note: "柔和模糊背景，保留任务栏细线。", enabled: shell.taskbarEnabled, supported: shell.taskbarSupported }, { id: "window-material", label: "窗口背景", note: "调整支持窗口的标题栏与背景材质。应用的不透明内容区域不会变成磨砂。", enabled: shell.windowMaterialEnabled, supported: shell.windowMaterialSupported }, { id: "start-menu", label: "开始菜单美化", note: "调整开始菜单的磨砂背景、圆角与鸿蒙字体，保留原来的布局。背景浓度越低，越通透。", enabled: shell.startMenuEnabled, supported: shell.startMenuSupported }].map(effect => <section className="effect-section" key={effect.id}><div className="setting-row"><div><h2>{effect.label}</h2><p>{effect.supported ? effect.note : "当前 Windows 版本暂不支持。"}</p></div><Switch label={effect.label} checked={effect.enabled} disabled={blocked || !effect.supported} onChange={value => void mutate(() => setTweak(effect.id, value))} /></div>{effect.supported && (effect.id === "window-material" || effect.id === "start-menu") && <VisualSettings key={effect.id === "window-material" ? shell.appearance.material : `${shell.appearance.tint}-${shell.appearance.radius}`} id={effect.id} settings={shell.appearance} enabled={effect.enabled} disabled={blocked} onApply={settings => void mutate(() => setAppearance(effect.id, settings))} />}{effect.id === "transparent-taskbar" && desktopSettings && <TaskbarControls key={JSON.stringify(desktopSettings.taskbar)} settings={desktopSettings.taskbar} disabled={blocked || !effect.supported} run={operation => mutate(operation).then(() => {})} />}</section>)}</div> : null;
   return <div className="app-shell">
     <header className="titlebar" data-tauri-drag-region><span className="titlebar-name" data-tauri-drag-region>WinGlow</span><div className="window-controls">
       <button aria-label="最小化" onClick={() => void windowAction("minimize")}><Minus size={15} /></button><button aria-label="最大化或还原" onClick={() => void windowAction("toggleMaximize")}><Square size={12} /></button><button aria-label="关闭窗口并在托盘运行" title="关闭窗口，WinGlow 留在托盘运行" className="close-window" disabled={busy || upgrading} onClick={() => void windowAction("close")}><X size={17} /></button>
@@ -156,7 +180,7 @@ export default function App() {
       {page === "home" ? <section className="home-page" aria-label="一键优化">
         <div className="home-intro"><img src={appIcon} alt="" width={96} height={96} /><h1>让电脑更美观</h1><p>一键调整字体、菜单与桌面效果，修改前自动备份</p></div>
         {!shell && !loading && <button className="button secondary" onClick={() => void reload()}>重新读取</button>}
-        <div className="home-actions"><button className="button primary optimize-button" disabled={blocked || !shell || shell.optimizationActive} title="首次使用需联网准备美化组件和动态壁纸。完成后自动刷新资源管理器，文件窗口可能关闭。" onClick={() => void mutate(() => optimizeSystem())}><Sparkles size={20} />{busy ? "正在处理…" : shell?.optimizationActive && !shell.optimizationPending ? "已优化" : "一键优化"}</button>
+        <div className="home-actions"><button className="button primary optimize-button" disabled={blocked || !shell || shell.optimizationActive} title="核心优化完成后，可选择下载动态壁纸组件。完成后自动刷新资源管理器，文件窗口可能关闭。" onClick={() => void applyOneClick()}><Sparkles size={20} />{busy ? "正在处理…" : shell?.optimizationActive && !shell.optimizationPending ? "已优化" : "一键优化"}</button>
           {shell?.optimizationActive && !shell.optimizationPending && <button className="button secondary home-restore" disabled={!desktop || busy || loading || upgrading} onClick={() => void mutate(() => optimizeSystem(true))}><RotateCcw size={20} />撤销优化</button>}
         </div>
 
@@ -185,7 +209,7 @@ export default function App() {
               <div className="optional-actions">
                 <Switch label={tool.label} checked={tool.enabled} disabled={blocked || !tool.supported} onChange={value => void mutate(() => optionalTool(tool.id, value ? "enable" : "disable"))} />
               </div>
-              {tool.installed && tool.id === "lively" && desktopSettings && <WallpaperControls key={`${desktopSettings.wallpaper.selected}-${desktopSettings.wallpaper.intervalMinutes}-${desktopSettings.wallpaper.volume}-${desktopSettings.wallpaper.canRestore}-${desktopSettings.wallpaper.items.length}`} settings={desktopSettings.wallpaper} disabled={blocked} run={mutate}/>}
+              {tool.installed && tool.id === "lively" && desktopSettings && <WallpaperControls key={`${desktopSettings.wallpaper.selected}-${desktopSettings.wallpaper.intervalMinutes}-${desktopSettings.wallpaper.volume}-${desktopSettings.wallpaper.canRestore}-${desktopSettings.wallpaper.items.length}`} settings={desktopSettings.wallpaper} disabled={blocked} run={operation => mutate(operation).then(() => {})}/>}
             </div>)}
           </section>
         </>}</> : <>
@@ -207,10 +231,19 @@ export default function App() {
           {upgradeError && <div className="notice" role="status"><p>桌面初始化或优化方案更新未完成，可以在这里重试。</p><button className="button secondary" disabled={blocked} onClick={() => void mutate(async () => { const result = await retryOptimizationUpgrade(); setUpgradeError(false); return result; })}>重试初始化</button></div>}
         </>}
       {pendingRecovery && <div className="notice error" role="alert"><p>{bootstrap?.pendingRecovery || "上次修改没有完成，请先还原。"}</p><button className="button secondary" disabled={busy || loading || upgrading || !desktop} onClick={() => void mutate(recoverPending)}>{busy ? "正在恢复…" : "恢复未完成修改"}</button></div>}
+      <AlertDialog.Root open={wallpaperPrompt} onOpenChange={setWallpaperPrompt}>
+        <AlertDialog.Portal><AlertDialog.Overlay className="dialog-overlay" /><AlertDialog.Content className="dialog-content">
+          <AlertDialog.Title className="dialog-title">下载动态壁纸组件？</AlertDialog.Title>
+          <AlertDialog.Description className="dialog-description">核心优化已完成。动态壁纸组件约 218 MB，下载并校验后会安装到本机；也可以稍后在“基础美化”中安装。</AlertDialog.Description>
+          <div className="dialog-actions"><AlertDialog.Cancel asChild><button className="button secondary">稍后</button></AlertDialog.Cancel><button className="button primary" onClick={() => void downloadWallpaper()}>下载组件</button></div>
+        </AlertDialog.Content></AlertDialog.Portal>
+      </AlertDialog.Root>
       <AppUpdates settings={page === "settings"} blocked={busy || upgrading || repairing || !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending} />
       {repairing && <div className="notice" role="status">{repairStage}</div>}
+      {wallpaperDownload && <div className="notice" role="status">正在下载并校验动态壁纸组件（约 218 MB）…</div>}
       {upgrading && <div className="notice" role="status">正在检查并更新优化方案…</div>}
       {notice && <div className={cn("notice", notice.error && "error")} role={notice.error ? "alert" : "status"}>{notice.text}</div>}
     </main></div>
   </div>;
 }
+

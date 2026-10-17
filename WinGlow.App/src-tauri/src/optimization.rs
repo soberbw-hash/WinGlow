@@ -343,8 +343,8 @@ fn migration_due(applied: &str, current: &str, completed: bool) -> bool {
 }
 fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
     shell_engine::ensure_ready()?;
-    let wallpaper_ready = crate::optional_tools::prepare_wallpaper_optimization()
-        .and_then(|()| crate::optional_tools::capture_wallpaper_optimization());
+    // Dynamic wallpaper is a large optional download. Keep it out of one-click
+    // optimization so core settings can finish without waiting on a 218 MB installer.
     // Preparation may download Breeze; no host settings change before all preparation succeeds.
     breeze::prepare()?;
     if taskbar::supported() {
@@ -379,10 +379,7 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
         },
         start_menu_applied,
         window_material_applied: crate::window_material::supported(),
-        wallpaper: before
-            .as_ref()
-            .and_then(|old| old.wallpaper.clone())
-            .or_else(|| wallpaper_ready.as_ref().ok().cloned()),
+        wallpaper: before.as_ref().and_then(|old| old.wallpaper.clone()),
         applied_version: env!("CARGO_PKG_VERSION").into(),
         prior_tokens,
     };
@@ -409,13 +406,7 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
                     message: String::new(),
                 }),
                 true,
-                || {
-                    if wallpaper_ready.is_ok() {
-                        crate::explorer::restart_for_optimization()
-                    } else {
-                        crate::explorer::restart()
-                    }
-                },
+                crate::explorer::restart,
             )?
             .message;
             if taskbar::supported() {
@@ -462,22 +453,7 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
     let mut result = ActionResult {
         message: format!("已优化字体、右键菜单、图标角标及桌面效果。{refresh_message}"),
     };
-    // Optional wallpaper runs last, after the single shell refresh. A player
-    // failure restores only its own profile, never the committed core settings.
-    let wallpaper_result = match wallpaper_ready {
-        Ok(current) => {
-            finish_optional_wallpaper(crate::optional_tools::apply_wallpaper_optimization, || {
-                crate::optional_tools::restore_wallpaper_optimization(&current)
-            })
-        }
-        Err(error) => Err(error),
-    };
-    match wallpaper_result {
-        Ok(()) => result.message.push_str(" 已开启动态壁纸。"),
-        Err(error) => result.message.push_str(&format!(
-            " 动态壁纸未完成：{error:#}。字体和菜单优化已保留，可在基础美化页重试壁纸。"
-        )),
-    }
+    result.message.push_str(" 动态壁纸可稍后单独下载。");
     if crate::visual::start_supported() && !s.start_menu_applied {
         result
             .message
@@ -485,6 +461,7 @@ fn apply_inner(before: Option<Session>) -> Result<ActionResult> {
     }
     Ok(result)
 }
+#[cfg(test)]
 fn finish_optional_wallpaper(
     apply: impl FnOnce() -> Result<()>,
     restore: impl FnOnce() -> Result<()>,
@@ -663,3 +640,4 @@ mod tests {
         assert!(!error.contains("已撤销本次修改"));
     }
 }
+
