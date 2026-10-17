@@ -354,7 +354,9 @@ pub fn update_if_due() -> Result<Option<ActionResult>> {
     if !upgrade_due(&before, done(&before.token)?.is_file()) {
         return Ok(None);
     }
-    apply_inner(Some(before)).map(Some)
+    let result = apply_inner(Some(before));
+    finish_apply_progress(&result);
+    result.map(Some)
 }
 fn upgrade_due(before: &Session, completed: bool) -> bool {
     migration_due(
