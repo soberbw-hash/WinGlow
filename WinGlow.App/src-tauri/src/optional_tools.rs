@@ -266,6 +266,10 @@ pub struct WallpaperOptimization {
     backup: String,
     installed_before: bool,
     running_before: bool,
+    #[serde(default)]
+    theme_before: Option<crate::wallpaper_theme::ThemeState>,
+    #[serde(default)]
+    theme_baseline: Option<crate::wallpaper_theme::ThemeState>,
 }
 pub fn prepare_wallpaper_optimization() -> Result<()> {
     WallpaperRefresh::capture()?;
@@ -279,6 +283,8 @@ pub fn capture_wallpaper_optimization() -> Result<WallpaperOptimization> {
         backup: backup(&LIVELY)?.to_string_lossy().into_owned(),
         installed_before: installed(&LIVELY)?,
         running_before: WallpaperRefresh::capture()?.exe.is_some(),
+        theme_before: Some(crate::wallpaper_theme::capture()?),
+        theme_baseline: crate::wallpaper_theme::baseline()?,
     })
 }
 fn lively_executable() -> Result<PathBuf> {
@@ -341,6 +347,7 @@ fn set_wallpaper_enabled(enabled: bool) -> Result<ActionResult> {
     if !wallpaper_enabled()? {
         carousel::stop()?;
         disable_wallpaper_startup()?;
+        crate::wallpaper_theme::restore_baseline()?;
         return Ok(ActionResult {
             message: "动态壁纸已关闭。".into(),
         });
@@ -361,6 +368,7 @@ fn set_wallpaper_enabled(enabled: bool) -> Result<ActionResult> {
             std::thread::sleep(Duration::from_millis(100));
         }
         disable_wallpaper_startup()?;
+        crate::wallpaper_theme::restore_baseline()?;
         Ok(())
     })();
     if let Err(error) = outcome {
@@ -470,7 +478,8 @@ pub fn apply_wallpaper_optimization() -> Result<()> {
             first.to_string_lossy().into_owned(),
         ],
     )?;
-    wait_for_selection(&exe, &first)
+    wait_for_selection(&exe, &first)?;
+    crate::wallpaper_theme::use_dark_wallpaper_mode()
 }
 fn wait_for_first_project() -> Result<PathBuf> {
     let deadline = Instant::now() + Duration::from_secs(30);
@@ -613,6 +622,10 @@ pub fn restore_wallpaper_optimization(before: &WallpaperOptimization) -> Result<
     if carousel::active() {
         carousel::start_host()?;
     }
+    crate::wallpaper_theme::restore_snapshot(
+        before.theme_before.as_ref(),
+        before.theme_baseline.as_ref(),
+    )?;
     Ok(())
 }
 fn lively_file(name: &str) -> Result<PathBuf> {
@@ -1049,6 +1062,7 @@ pub fn select_wallpaper(id: String, minutes: u32) -> Result<ActionResult> {
     if id == "builtin:carousel" {
         bail!("自动轮播已移除，请直接选择一张壁纸。");
     }
+    let dark = wallpaper_uses_dark_mode(&id);
     let project = if let Some(scene) = id.strip_prefix("builtin:") {
         scene_project(scene, minutes)?
     } else {
@@ -1064,8 +1078,16 @@ pub fn select_wallpaper(id: String, minutes: u32) -> Result<ActionResult> {
                 project.to_string_lossy().into_owned(),
             ],
         )?;
-        wait_for_selection(exe, &project)
+        wait_for_selection(exe, &project)?;
+        if dark {
+            crate::wallpaper_theme::use_dark_wallpaper_mode()
+        } else {
+            crate::wallpaper_theme::use_light_wallpaper_mode()
+        }
     })
+}
+fn wallpaper_uses_dark_mode(id: &str) -> bool {
+    !matches!(id.strip_prefix("builtin:"), Some("dawn"))
 }
 pub fn set_wallpaper_volume(volume: u8) -> Result<ActionResult> {
     if volume > 100 {
@@ -1176,7 +1198,8 @@ pub fn wallpaper_control(action: &str, path: Option<PathBuf>) -> Result<ActionRe
                     "--file".into(),
                     path.to_string_lossy().into_owned(),
                 ],
-            )
+            )?;
+            crate::wallpaper_theme::use_dark_wallpaper_mode()
         });
     }
     let _guard = worker::optimization_lock()?;
@@ -1207,6 +1230,9 @@ pub fn wallpaper_control(action: &str, path: Option<PathBuf>) -> Result<ActionRe
     backup(&LIVELY)?;
     ensure_lively_started(&exe)?;
     send_wallpaper_command(&exe, &args)?;
+    if action == "stop" {
+        crate::wallpaper_theme::restore_baseline()?;
+    }
     Ok(ActionResult {
         message: "已发送壁纸设置，画面由动态壁纸组件更新。".into(),
     })
@@ -1324,6 +1350,14 @@ mod tests {
             Path::new(r"C:\wallpaper")
         );
         assert!(tool("explorer-patcher").is_err());
+    }
+    #[test]
+    fn dark_wallpapers_use_light_system_text_and_dawn_uses_light_windows_mode() {
+        assert!(wallpaper_uses_dark_mode("builtin:night"));
+        assert!(wallpaper_uses_dark_mode("builtin:sea"));
+        assert!(wallpaper_uses_dark_mode("builtin:carousel"));
+        assert!(!wallpaper_uses_dark_mode("builtin:dawn"));
+        assert!(wallpaper_uses_dark_mode("library:custom-dark-wallpaper"));
     }
 }
 

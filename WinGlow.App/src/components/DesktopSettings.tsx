@@ -27,6 +27,7 @@ export function TaskbarControls({settings,disabled,run}:{settings:TaskbarSetting
 export function WallpaperControls({settings,disabled,run}:{settings:DesktopSettings["wallpaper"];disabled:boolean;run:Run}) {
   const selected=settings.selected;
   return <fieldset className="desktop-settings wallpaper-settings" disabled={disabled}><legend className="sr-only">壁纸设置</legend>
+    <p className="control-note">深色壁纸会自动使用 Windows 深色模式和应用浅色模式，让任务栏时间更清晰；切换或关闭动态壁纸时会恢复之前的颜色设置。</p>
     <div className="wallpaper-grid" role="group" aria-label="选择壁纸">{settings.items.filter(item=>item.id!=="builtin:carousel").map(item=><button key={item.id} type="button" aria-pressed={selected===item.id} className={cn("wallpaper-card",selected===item.id&&"selected")} onClick={()=>void run(()=>selectWallpaper(item.id,5))}>
       {item.preview?<img src={item.preview} alt="" loading="lazy"/>:<span className={cn("wallpaper-preview",`wallpaper-${item.scene??"carousel"}`)} aria-hidden="true"/>}<span>{item.title}</span>
     </button>)}</div>

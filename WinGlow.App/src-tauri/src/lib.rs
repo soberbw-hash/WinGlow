@@ -28,6 +28,7 @@ mod tray;
 mod ui_fonts;
 mod visual;
 mod visual_diagnostics;
+mod wallpaper_theme;
 mod window_layout;
 mod window_material;
 mod worker;
