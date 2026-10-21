@@ -151,8 +151,10 @@ pub fn as_string(value: &StoredValue) -> Option<String> {
     }
     let chars: Vec<u16> = value
         .bytes
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .take_while(|&c| c != 0)
         .collect();
     String::from_utf16(&chars).ok()

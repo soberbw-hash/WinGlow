@@ -6,9 +6,9 @@ WinGlow 把字体、右键菜单、任务栏、窗口背景和开始菜单集中
 
 ## 下载
 
-[**下载最新版安装包 · v1.1.17（Windows x64）**](https://github.com/soberbw-hash/WinGlow/releases/download/v1.1.17/WinGlow-1.1.17-Setup.exe)
+[**下载最新版安装包 · v1.1.18（Windows x64）**](https://github.com/soberbw-hash/WinGlow/releases/download/v1.1.18/WinGlow-1.1.18-Setup.exe)
 
-[安装包 SHA-256](https://github.com/soberbw-hash/WinGlow/releases/download/v1.1.17/SHA256SUMS.txt) · [更新说明与校验文件](https://github.com/soberbw-hash/WinGlow/releases/latest)
+[安装包 SHA-256](https://github.com/soberbw-hash/WinGlow/releases/download/v1.1.18/SHA256SUMS.txt) · [更新说明与校验文件](https://github.com/soberbw-hash/WinGlow/releases/latest)
 
 推荐使用安装版，方便创建快捷方式和后续更新。支持 Windows 10 / 11 x64，应用需要 WebView2；任务栏美化需要 Windows 11，窗口材质需要 Windows 11 22H2 或更高版本。各项功能会根据系统支持情况开放。
 
@@ -29,6 +29,11 @@ WinGlow 把字体、右键菜单、任务栏、窗口背景和开始菜单集中
 - **自动更新**：启动检查，后台下载并验证签名，准备好后提示。点击安装并重新打开；也可以从“设置与还原”手动检查。
 
 字体单独应用和还原可能需要刷新资源管理器，桌面与任务栏会短暂消失，文件夹窗口可能关闭。完整一键优化集中完成设置后再统一刷新；菜单切换、一键精简和菜单还原不主动重启桌面。刷新前暂停自有组件，桌面稳定后恢复已启用效果。部分应用需重新打开或注销才能使用新字体。
+
+## v1.1.18 更新
+
+- Breeze 登录启动改为静默隐藏控制台，升级后自动迁移已有启动项，避免后台弹出日志窗口。
+- 保留现有 Breeze 注入进程，关闭窗口不再需要用户手动结束它。
 
 ## v1.1.17 更新
 

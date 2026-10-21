@@ -140,7 +140,7 @@ fn render(path: &str, index: i32) -> Option<String> {
         pixels.fill(255);
         let drawn = DrawIconEx(dc, 0, 0, icon, 32, 32, 0, None, DI_NORMAL).is_ok();
         let mut rgb = Vec::with_capacity(32 * 32 * 3);
-        for pixel in pixels.chunks_exact(4) {
+        for pixel in pixels.as_chunks::<4>().0 {
             rgb.extend([pixel[2], pixel[1], pixel[0]]);
         }
         SelectObject(dc, old);

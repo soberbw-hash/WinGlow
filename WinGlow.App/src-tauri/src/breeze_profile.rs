@@ -76,6 +76,26 @@ pub fn plan() -> Result<Vec<Entry>> {
     }])
 }
 
+fn apply_profile(root: &mut Map<String, Value>) -> Result<()> {
+    root.remove("default_animation");
+    root.insert("debug_console".into(), Value::Bool(false));
+    root.insert("language".into(), Value::String("zh_CN".into()));
+    root.insert("show_settings_button".into(), Value::Bool(true));
+    root.insert("patch_explorerframe_dll".into(), Value::Bool(true));
+    let context_menu = root
+        .entry("context_menu")
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("Breeze context_menu 配置不是对象"))?;
+    context_menu.remove("theme");
+    context_menu.insert("vsync".into(), Value::Bool(true));
+    context_menu.insert("ignore_owner_draw".into(), Value::Bool(true));
+    context_menu.insert("reverse_if_open_to_up".into(), Value::Bool(false));
+    context_menu.insert("hotkeys".into(), Value::Bool(true));
+    root.insert("plugin_load_order".into(), json!(PLUGINS));
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,24 +141,4 @@ mod tests {
         root.insert("context_menu".into(), Value::String("invalid".into()));
         assert!(apply_profile(&mut root).is_err());
     }
-}
-
-fn apply_profile(root: &mut Map<String, Value>) -> Result<()> {
-    root.remove("default_animation");
-    root.insert("debug_console".into(), Value::Bool(false));
-    root.insert("language".into(), Value::String("zh_CN".into()));
-    root.insert("show_settings_button".into(), Value::Bool(true));
-    root.insert("patch_explorerframe_dll".into(), Value::Bool(true));
-    let context_menu = root
-        .entry("context_menu")
-        .or_insert_with(|| Value::Object(Map::new()))
-        .as_object_mut()
-        .ok_or_else(|| anyhow::anyhow!("Breeze context_menu 配置不是对象"))?;
-    context_menu.remove("theme");
-    context_menu.insert("vsync".into(), Value::Bool(true));
-    context_menu.insert("ignore_owner_draw".into(), Value::Bool(true));
-    context_menu.insert("reverse_if_open_to_up".into(), Value::Bool(false));
-    context_menu.insert("hotkeys".into(), Value::Bool(true));
-    root.insert("plugin_load_order".into(), json!(PLUGINS));
-    Ok(())
 }

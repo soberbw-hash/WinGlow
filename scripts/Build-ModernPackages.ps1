@@ -1,4 +1,4 @@
-﻿param([switch]$SkipChecks, [string]$SigningKeyPath, [string]$OutputDirectory)
+param([switch]$SkipChecks, [string]$SigningKeyPath, [string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $appRoot = Join-Path $repoRoot 'WinGlow.App'
@@ -27,7 +27,7 @@ try {
         Invoke-Checked 'cargo' @('test', '--manifest-path', 'src-tauri/Cargo.toml')
         Invoke-Checked 'node' @('../scripts/Verify-ArchiveFilter.mjs')
     }
-    Invoke-Checked 'npm.cmd' @('run', 'tauri', 'build', '--bundles', 'nsis')
+    Invoke-Checked 'npm.cmd' @('run', 'tauri', '--', 'build', '--bundles', 'nsis')
     New-Item -ItemType Directory -Path $portable -Force | Out-Null
     $setup = Join-Path $appRoot "src-tauri\target\release\bundle\nsis\$($config.productName)_${version}_x64-setup.exe"
     Copy-Item -LiteralPath $setup -Destination (Join-Path $outRoot "WinGlow-$version-Setup.exe") -Force

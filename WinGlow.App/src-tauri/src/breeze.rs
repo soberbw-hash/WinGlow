@@ -63,15 +63,49 @@ fn legacy_slot() -> registry::Slot {
     registry::slot(Scope::Startup, "WindowsWeitiao-Breeze")
 }
 fn command() -> Result<String> {
+    let windir = std::env::var_os("WINDIR").context("无法定位 Windows 系统目录")?;
+    let launcher = PathBuf::from(windir).join("System32").join("wscript.exe");
+    let script = root()?.join("start-hidden.vbs");
+    Ok(format!(
+        "\"{}\" //B //NoLogo \"{}\"",
+        launcher.display(),
+        script.display()
+    ))
+}
+fn direct_command() -> Result<String> {
     Ok(format!("\"{}\" inject-consistent", exe()?.display()))
+}
+fn is_breeze_startup_command(value: &str, hidden_launcher: &str, old_direct: &str) -> bool {
+    value == hidden_launcher || value == old_direct
+}
+fn needs_startup_migration(value: &str, old_direct: &str) -> bool {
+    value == old_direct
+}
+fn hidden_launcher_script(executable: &std::path::Path) -> String {
+    let command = format!("\"{}\" inject-consistent", executable.display());
+    let vbs_command = command.replace('"', "\"\"");
+    format!("CreateObject(\"WScript.Shell\").Run \"{vbs_command}\", 0, False\r\n")
+}
+fn ensure_hidden_launcher() -> Result<PathBuf> {
+    let executable = exe()?;
+    if !executable.is_file() {
+        bail!("找不到 Breeze 启动文件，无法配置登录启动。");
+    }
+    let script = root()?.join("start-hidden.vbs");
+    let contents = hidden_launcher_script(&executable);
+    if fs::read_to_string(&script).ok().as_deref() != Some(&contents) {
+        fs::write(&script, contents).context("无法写入 Breeze 隐藏启动脚本")?;
+    }
+    Ok(script)
 }
 pub fn enabled() -> Result<bool> {
     let expected = command()?;
+    let old_direct = direct_command()?;
     for candidate in [slot(), legacy_slot()] {
         if WindowsRegistry
             .read(&candidate)?
             .and_then(|v| registry::as_string(&v))
-            .is_some_and(|s| s == expected)
+            .is_some_and(|s| is_breeze_startup_command(&s, &expected, &old_direct))
         {
             return Ok(true);
         }
@@ -123,6 +157,7 @@ pub fn install() -> Result<PathBuf> {
             crate::transaction::persist_new(&path, &data)?;
         }
     }
+    ensure_hidden_launcher()?;
     fs::write(
         root.join("LICENSE.txt"),
         include_str!("../../../licenses/Breeze-AGPL-3.0.txt"),
@@ -163,6 +198,7 @@ pub fn stop() -> Result<()> {
     Ok(())
 }
 pub fn startup_entry() -> Result<Entry> {
+    ensure_hidden_launcher()?;
     Ok(Entry {
         slot: slot(),
         value: Some(registry::string(&command()?)),
@@ -170,10 +206,12 @@ pub fn startup_entry() -> Result<Entry> {
 }
 pub fn startup_entries() -> Result<Vec<Entry>> {
     let mut entries = vec![startup_entry()?];
+    let expected = command()?;
+    let old_direct = direct_command()?;
     if WindowsRegistry
         .read(&legacy_slot())?
         .and_then(|v| registry::as_string(&v))
-        .is_some_and(|s| s == command().unwrap_or_default())
+        .is_some_and(|s| is_breeze_startup_command(&s, &expected, &old_direct))
     {
         entries.push(Entry {
             slot: legacy_slot(),
@@ -235,7 +273,23 @@ pub fn sync() -> Result<()> {
     if !enabled()? {
         return stop();
     }
+    migrate_startup()?;
     resume_runtime()
+}
+fn migrate_startup() -> Result<()> {
+    let old_direct = direct_command()?;
+    let primary_is_old = WindowsRegistry
+        .read(&slot())?
+        .and_then(|value| registry::as_string(&value))
+        .is_some_and(|value| needs_startup_migration(&value, &old_direct));
+    let legacy_is_old = WindowsRegistry
+        .read(&legacy_slot())?
+        .and_then(|value| registry::as_string(&value))
+        .is_some_and(|value| needs_startup_migration(&value, &old_direct));
+    if primary_is_old || legacy_is_old {
+        shell_engine::commit("menu:breeze", startup_entries()?, || Ok(()))?;
+    }
+    Ok(())
 }
 pub(crate) fn resume_runtime() -> Result<()> {
     prepare()?;
@@ -300,12 +354,13 @@ pub fn set(enable: bool) -> Result<ActionResult> {
     } else {
         let mut entries = shell_engine::baseline(&[slot(), legacy_slot()])?;
         let expected = command()?;
+        let old_direct = direct_command()?;
         for entry in &mut entries {
             if entry
                 .value
                 .as_ref()
                 .and_then(registry::as_string)
-                .is_some_and(|s| s == expected)
+                .is_some_and(|s| is_breeze_startup_command(&s, &expected, &old_direct))
             {
                 entry.value = None;
             }
@@ -320,6 +375,31 @@ pub fn set(enable: bool) -> Result<ActionResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn startup_launcher_runs_breeze_without_showing_a_console() {
+        let script = hidden_launcher_script(std::path::Path::new(r"C:\Breeze\breeze.exe"));
+        assert!(script.contains("inject-consistent"));
+        assert!(script.contains(", 0, False"));
+    }
+    #[test]
+    fn old_direct_startup_command_remains_recognized_for_migration() {
+        assert!(is_breeze_startup_command(
+            r#""C:\Breeze\breeze.exe" inject-consistent"#,
+            "hidden launcher",
+            r#""C:\Breeze\breeze.exe" inject-consistent"#
+        ));
+    }
+    #[test]
+    fn only_the_old_direct_command_triggers_startup_migration() {
+        assert!(needs_startup_migration(
+            r#""C:\Breeze\breeze.exe" inject-consistent"#,
+            r#""C:\Breeze\breeze.exe" inject-consistent"#
+        ));
+        assert!(!needs_startup_migration(
+            "hidden launcher",
+            "old direct command"
+        ));
+    }
     #[test]
     fn runtime_ownership_does_not_depend_on_startup_toggle() {
         assert!(runtime_owned(true, true, false));

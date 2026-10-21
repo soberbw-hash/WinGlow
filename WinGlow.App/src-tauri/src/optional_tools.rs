@@ -483,15 +483,13 @@ pub fn apply_wallpaper_optimization() -> Result<()> {
 }
 fn wait_for_first_project() -> Result<PathBuf> {
     let deadline = Instant::now() + Duration::from_secs(30);
-    let mut last_error = None;
     loop {
         match carousel::first_project() {
             Ok(project) => return Ok(project),
-            Err(error) => last_error = Some(error),
-        }
-        if Instant::now() >= deadline {
-            let error = last_error.context("默认 Rain 壁纸未出现在壁纸库中。")?;
-            bail!("动态壁纸库初始化超时：{error:#}");
+            Err(error) if Instant::now() >= deadline => {
+                bail!("动态壁纸库初始化超时：{error:#}");
+            }
+            Err(_) => {}
         }
         std::thread::sleep(Duration::from_millis(250));
     }

@@ -355,6 +355,7 @@ fn recover_effects() -> Result<()> {
 pub fn restart() -> Result<()> {
     restart_with_wallpaper(false)
 }
+#[allow(dead_code)] // Exercised by the native_checks example, not the production UI.
 pub(crate) fn restart_for_optimization() -> Result<()> {
     restart_with_wallpaper(true)
 }
