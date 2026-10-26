@@ -3,7 +3,11 @@ import vm from "node:vm";
 import assert from "node:assert/strict";
 const code = readFileSync(new URL("../WinGlow.App/src-tauri/src/archive_filter.js", import.meta.url), "utf8").replace(/import .*;\r?\n/, "").replace("export function", "function");
 let listener;
-vm.runInNewContext(code, { menu_controller: { add_menu_listener: fn => { listener = fn; } } });
+vm.runInNewContext(code, {
+  menu_controller: { add_menu_listener: fn => { listener = fn; } },
+  fs: { watch() {}, read: () => JSON.stringify({ exact: [], patterns: [], enabled: [] }) },
+  breeze: { data_directory: () => "." },
+});
 let watchCallback, configOpened = 0, requestRemoved = false, configAck;
 const configId = "12345678-1234-4abc-8def-1234567890ab";
 vm.runInNewContext(code, {
@@ -82,16 +86,18 @@ collision({ menu: collisionMenu });
 assert.ok(collisionMenu.items.every(item => !item.removed), "An enabled equivalent title must survive normalization and provider patterns");
 console.log("Enabled title protection covers casing, whitespace, accelerator labels and provider patterns.");
 
-let currentRules = { exact: ["用 WorkBuddy 打开"], patterns: [], enabled: [] }, dynamicListener;
-vm.runInNewContext(code, { menu_controller: { add_menu_listener: fn => { dynamicListener = fn; } }, fs: { read: () => JSON.stringify(currentRules), write() {} }, breeze: { data_directory: () => "." } });
+let currentRules = { exact: ["用 WorkBuddy 打开"], patterns: [], enabled: [] }, dynamicListener, dynamicWatch;
+vm.runInNewContext(code, { menu_controller: { add_menu_listener: fn => { dynamicListener = fn; } }, fs: { watch: (_directory, fn) => { dynamicWatch = fn; }, read: () => JSON.stringify(currentRules), write() {} }, breeze: { data_directory: () => "." } });
 const dynamicOff = menu(["用 WorkBuddy 打开", "复制"]);
 dynamicListener({ menu: dynamicOff });
 assert.equal(dynamicOff.items[0].removed, true);
 currentRules = { exact: [], patterns: [], enabled: ["用 WorkBuddy 打开"] };
+dynamicWatch("./WinGlow-MenuRules.json");
 const dynamicOn = menu(["用 WorkBuddy 打开", "复制"]);
 dynamicListener({ menu: dynamicOn });
 assert.equal(dynamicOn.items[0].removed, false, "Fresh data must apply without script or engine reload");
 currentRules = { exact: [], patterns: ["["], enabled: [] };
+dynamicWatch("./WinGlow-MenuRules.json");
 const malformed = menu(["用 WorkBuddy 打开", "复制"]);
 dynamicListener({ menu: malformed });
 assert.ok(malformed.items.every(item => !item.removed), "Invalid rules must retain the last valid state");
@@ -101,3 +107,33 @@ const requestedItems = menu(['使用图形处理器运行', '更改 OpenGL 渲�
 requestedCleanup({ menu: requestedItems });
 assert.deepEqual(requestedItems.items.filter(i => !i.removed).map(i => i.value.name), ['使用微信打开（手动保留）', '打开', '复制', '属性']);
 console.log('Requested GPU, cloud, Doubao and WeChat cleanup hides display aliases while respecting manual ON titles.');
+
+let changedRules, cachedRules = { exact: [], patterns: ['回收站'], enabled: ['清空\u200B\u200B回收站'] };
+let ruleReads = 0, menuWrites = 0;
+const cachedListener = (() => {
+  let callback;
+  vm.runInNewContext(code, {
+    menu_controller: { add_menu_listener: fn => { callback = fn; } },
+    fs: {
+      watch: (_directory, fn) => { changedRules = fn; },
+      read: path => { if (path.endsWith('WinGlow-MenuRules.json')) { ruleReads += 1; return JSON.stringify(cachedRules); } return ''; },
+      write: () => { menuWrites += 1; },
+    },
+    breeze: { data_directory: () => 'C:/Users/test/.breeze-shell' },
+  });
+  return callback;
+})();
+assert.equal(ruleReads, 1, 'Rules should load once when the plugin starts');
+for (let i = 0; i < 3; i++) cachedListener({ menu: menu(['清空回收站', '复制']) });
+assert.equal(ruleReads, 1, 'Opening menus must not synchronously read rule files');
+assert.equal(menuWrites, 0, 'Opening menus must not synchronously write debug snapshots');
+const recycleMenu = menu(['清空回收站', '复制']);
+cachedListener({ menu: recycleMenu });
+assert.equal(recycleMenu.items[0].removed, false, 'Zero-width spaces in enabled titles must not cause a visible action to be hidden');
+cachedRules = { exact: ['复制'], patterns: [], enabled: [] };
+changedRules('C:/Users/test/.breeze-shell/WinGlow-MenuRules.json');
+assert.equal(ruleReads, 2, 'Updated rules should reload from the file watcher');
+const updatedMenu = menu(['清空回收站', '复制']);
+cachedListener({ menu: updatedMenu });
+assert.deepEqual(updatedMenu.items.filter(item => !item.removed).map(item => item.value.name), ['清空回收站']);
+console.log('Menu filtering caches rules between openings, reloads changes via the file watcher, and ignores zero-width characters.');

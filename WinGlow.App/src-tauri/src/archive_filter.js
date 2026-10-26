@@ -2,10 +2,30 @@ import { menu_controller, fs, breeze } from "mshell";
 
 // WinGlow can ask the running Breeze runtime to open its native visual settings
 // window. Breeze exposes that page only inside its injected JavaScript runtime.
+const dataDirectory = breeze.data_directory();
+let hiddenRules = { exact: [], patterns: [], enabled: [] };
+const normalize = value => String(value ?? "").split("\t")[0].replace(/[\u200B-\u200D\uFEFF]/g, "").replace(/\([&＆][^)]*\)|[&＆]|[.。…\s]/g, "").toLowerCase();
+function reloadRules() {
+  try {
+    const text = fs.read(dataDirectory + "/WinGlow-MenuRules.json");
+    if (text.length > 65536) return hiddenRules;
+    const rules = JSON.parse(text);
+    if (![rules.exact, rules.patterns, rules.enabled ?? []].every(values => Array.isArray(values) && values.every(value => typeof value === "string"))) return hiddenRules;
+    for (const pattern of rules.patterns) new RegExp(pattern, "i");
+    hiddenRules = rules;
+  } catch {}
+  return hiddenRules;
+}
+// Load once and refresh only when WinGlow replaces the rules file. This keeps
+// file I/O off the synchronous Explorer menu-construction path.
+reloadRules();
 try {
-  const dataDirectory = breeze.data_directory();
   fs.watch(dataDirectory, path => {
     const name = String(path).replaceAll("\\", "/").split("/").pop();
+    if (/^WinGlow-MenuRules\.json$/i.test(name ?? "")) {
+      reloadRules();
+      return;
+    }
     const match = /^WinGlow-Open-Config-([0-9a-f-]{36})\.request$/i.exec(name ?? "");
     if (!match) return;
     const requestPath = `${dataDirectory}/${name}`;
@@ -19,22 +39,6 @@ try {
     } catch {}
   });
 } catch {}
-
-// Read data on each menu opening. Changing a switch must not reset Breeze's
-// QuickJS runtime and invalidate callbacks still owned by an open menu.
-let hiddenRules = { exact: [], patterns: [], enabled: [] };
-const normalize = value => String(value ?? "").split("\t")[0].replace(/\([&＆][^)]*\)|[&＆]|[.。…\s]/g, "").toLowerCase();
-function readRules() {
-  try {
-    const text = fs.read(breeze.data_directory() + "/WinGlow-MenuRules.json");
-    if (text.length > 65536) return hiddenRules;
-    const rules = JSON.parse(text);
-    if (![rules.exact, rules.patterns, rules.enabled ?? []].every(values => Array.isArray(values) && values.every(value => typeof value === "string"))) return hiddenRules;
-    for (const pattern of rules.patterns) new RegExp(pattern, "i");
-    hiddenRules = rules;
-  } catch {}
-  return hiddenRules;
-}
 function hideDisabled(menu, rules) {
   const enabledNames = new Set((rules.enabled ?? []).map(normalize));
   const hiddenNames = new Set(rules.exact.map(normalize));
@@ -80,9 +84,6 @@ export function compactArchiveMenu(menu) {
   }
 }
 menu_controller.add_menu_listener(e => {
-  const before = e.menu.items.map(item => item.data().name);
-  hideDisabled(e.menu, readRules());
+  hideDisabled(e.menu, hiddenRules);
   compactArchiveMenu(e.menu);
-  // One bounded diagnostic snapshot of the actual rendered menu, no file paths.
-  try { fs.write(breeze.data_directory() + "/WinGlow-last-menu.json", JSON.stringify({ before, after: e.menu.items.map(item => item.data().name) })); } catch {}
 });
