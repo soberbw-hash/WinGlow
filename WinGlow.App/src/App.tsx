@@ -9,7 +9,7 @@ import { VisualSettings } from "./components/VisualSettings";
 import { TaskbarControls, WallpaperControls } from "./components/DesktopSettings";
 import appIcon from "./assets/app-icon.png";
 import { cn } from "./lib/cn";
-import { openBackup, openBreezeConfig, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, restoreNormal, optimizeSystem, optimizeProgress, optimizeMenu, optionalTool, loadDesktopSettings, optimizationUpgradeStatus, retryOptimizationUpgrade, openHomepage } from "./lib/tauri";
+import { openBackup, openBreezeConfig, refreshExplorer, loadBootstrap, loadShell, applyFont, restoreFonts, setTweak, setAppearance, setMenuItem, restoreCategory, recoverPending, repairSystem, repairProgress, restoreNormal, optimizeSystem, optimizeProgress, optimizeMenu, optionalTool, loadDesktopSettings, optimizationUpgradeStatus, retryOptimizationUpgrade, openHomepage } from "./lib/tauri";
 import type { BootstrapPayload, PageId, ShellState, ActionResult, DesktopSettings } from "./types";
 
 const pages = [
@@ -40,6 +40,20 @@ function RestoreButton({ label, description, disabled, onRestore, primary = fals
     </AlertDialog.Content></AlertDialog.Portal>
   </AlertDialog.Root>;
 }
+function RefreshExplorerButton({ label, disabled, onRefresh }: {
+  label: string;
+  disabled: boolean;
+  onRefresh: () => void;
+}) {
+  return <AlertDialog.Root>
+    <AlertDialog.Trigger asChild><button className="button secondary explorer-refresh-button" disabled={disabled} title="重启资源管理器并预览变化。">{label}</button></AlertDialog.Trigger>
+    <AlertDialog.Portal><AlertDialog.Overlay className="dialog-overlay" /><AlertDialog.Content className="dialog-content">
+      <AlertDialog.Title className="dialog-title">{label}？</AlertDialog.Title>
+      <AlertDialog.Description className="dialog-description">将重启 Windows 资源管理器。桌面和任务栏会短暂刷新，打开的文件夹窗口可能关闭。请先完成文件复制。</AlertDialog.Description>
+      <div className="dialog-actions"><AlertDialog.Cancel asChild><button className="button secondary">取消</button></AlertDialog.Cancel><AlertDialog.Action asChild><button className="button primary" onClick={onRefresh}>刷新并预览</button></AlertDialog.Action></div>
+    </AlertDialog.Content></AlertDialog.Portal>
+  </AlertDialog.Root>;
+}
 export default function App() {
   const [page, setPage] = useState<PageId>("home");
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
@@ -48,6 +62,7 @@ export default function App() {
   const [desktopSettingsError, setDesktopSettingsError] = useState("");
   const [selectedId, setSelectedId] = useState("harmonyos-sc-bold");
   const [busy, setBusy] = useState(false);
+  const [refreshingExplorer, setRefreshingExplorer] = useState(false);
   const [optimizing, setOptimizing] = useState(false);
   const [optimizationProgress, setOptimizationProgress] = useState<{percent:number;stage:string}|null>(null);
   const [wallpaperPrompt, setWallpaperPrompt] = useState(false);
@@ -155,15 +170,27 @@ export default function App() {
   const familyPresets = bootstrap?.presets.filter(p => p.id !== "harmonyos-sc-bold") ?? [];
   const pendingRecovery = !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending;
   const blocked = !desktop || busy || upgrading || loading || pendingRecovery;
-  async function mutate(operation: () => Promise<ActionResult>): Promise<boolean> {
+  async function mutate(operation: () => Promise<ActionResult>, reloadSettings = true): Promise<boolean> {
     if (mutationRunning.current || busy || upgrading) return false;
     mutationRunning.current = true;
     setBusy(true); setNotice(null);
     let succeeded = false;
     try { const result = await operation(); succeeded = true; if (result.message) setNotice({ text: result.message, error: false }); }
     catch (error) { setNotice({ text: String(error), error: true }); }
-    finally { await reload(); mutationRunning.current = false; setBusy(false); }
+    finally {
+      if (reloadSettings) await reload();
+      mutationRunning.current = false;
+      setBusy(false);
+    }
     return succeeded;
+  }
+  async function refreshDesktop() {
+    setRefreshingExplorer(true);
+    try {
+      await mutate(refreshExplorer, false);
+    } finally {
+      setRefreshingExplorer(false);
+    }
   }
   async function applyOneClick() {
     const needsWallpaperDownload = !shell?.optionalTools.some(tool => tool.id === "lively" && tool.installed);
@@ -228,12 +255,25 @@ export default function App() {
           <div className="comparison"><section className="preview-panel" aria-label="更换前"><div className="preview-caption"><h2>更换前</h2></div><FontSample family={bootstrap.currentPreviewFamily} weight={bootstrap.currentPreviewWeight} /></section><section className="preview-panel" aria-label="更换后"><div className="preview-caption"><h2>更换后</h2></div><FontSample family={selected?.previewFamily ?? '"Microsoft YaHei UI", sans-serif'} /></section></div>
           <div className="apply-row"><button className="button primary apply-button" title="应用成功后自动重启资源管理器，桌面和任务栏会短暂消失，文件窗口可能关闭。请先完成文件复制。" disabled={blocked || !selected || bootstrap.activePresetId === selectedId && !bootstrap.needsFontRefresh} onClick={() => void applySelected()}>{busy ? "处理中…" : bootstrap.activePresetId === selectedId && !bootstrap.needsFontRefresh ? <><Check size={16} />已应用</> : "应用"}</button></div>
         </>}</> : page === "menu" ? <>
-          <div className="menu-page-heading"><h1>右键菜单</h1><button className="button primary menu-auto-button" disabled={blocked || !shell} onClick={() => void mutate(optimizeMenu)}>一键精简</button><div className="breeze-compact" title="首次开启需下载，关闭后注销恢复原菜单。"><span>Breeze 美化</span><Switch label="Breeze 美化" checked={shell?.breezeEnabled ?? false} disabled={blocked || !shell} onChange={value => void mutate(() => setTweak("breeze", value))} /><button className="button secondary breeze-config-button" disabled={busy || loading || upgrading} title="直接打开 Breeze Config 可视化设置窗口。" onClick={() => void mutate(openBreezeConfig)}>Breeze 设置</button></div></div>
+          <div className="menu-page-heading">
+            <h1>右键菜单</h1>
+            <button className="button primary menu-auto-button" disabled={blocked || !shell} title="隐藏预设中的菜单项，并为已启用的 Breeze 应用宽松主题和快速动画。" onClick={() => void mutate(optimizeMenu)}>一键精简</button>
+            <div className="breeze-compact">
+              <span>Breeze 美化</span>
+              <Switch label="Breeze 美化" checked={shell?.breezeEnabled ?? false} disabled={blocked || !shell} onChange={value => void mutate(() => setTweak("breeze", value))} />
+              <button className="button secondary breeze-config-button" disabled={blocked || !shell?.breezeEnabled} onClick={() => void mutate(openBreezeConfig, false)}>Breeze 设置</button>
+              <RefreshExplorerButton label="刷新菜单" disabled={blocked || !shell} onRefresh={() => void refreshDesktop()} />
+            </div>
+          </div>
           {!shell && loading ? <p className="empty-state">正在读取…</p> : !shell ? <button className="button secondary" onClick={() => void reload()}>重试</button> : <MenuManager items={shell.items} disabled={blocked} loading={busy || loading} onRefresh={() => void reload()} onToggle={(id, enabled) => void mutate(() => setMenuItem(id, enabled))} />}
         </> : page === "details" ? <><h1>基础美化</h1>{!shell ? <div className="empty-state"><button className="button secondary" disabled={loading} onClick={() => void reload()}>重试</button></div> : <>
           {optimizationEffects}
           {desktopSettingsError && <div className="notice error" role="alert">桌面设置读取失败：{desktopSettingsError}<button className="button secondary" disabled={blocked} onClick={()=>void reload()}>重新读取</button></div>}
           <div className="settings-list">
+            <div className="desktop-icons-heading">
+              <h2>桌面图标</h2>
+              <RefreshExplorerButton label="刷新桌面" disabled={blocked} onRefresh={() => void refreshDesktop()} />
+            </div>
             {shell.tweaks.map(tweak => <div className="setting-row" key={tweak.id}><div><h2>{tweak.label}</h2>{tweak.note && <p>{tweak.note}</p>}</div><Switch label={tweak.label} checked={tweak.enabled} disabled={blocked} onChange={value => void mutate(() => setTweak(tweak.id, value))} /></div>)}
           </div>
           <section className="optional-section" aria-labelledby="optional-heading"><h2 id="optional-heading">动态壁纸</h2>
@@ -274,6 +314,7 @@ export default function App() {
       <AppUpdates settings={page === "settings"} blocked={busy || upgrading || repairing || !!bootstrap?.pendingRecovery || !!shell?.pendingRecovery || !!shell?.optimizationPending} />
       {repairing && <div className="notice" role="status">{repairStage}</div>}
       {wallpaperDownload && <div className="notice" role="status">正在下载并校验动态壁纸组件（约 218 MB）…</div>}
+      {refreshingExplorer && <div className="notice" role="status">正在刷新资源管理器并恢复桌面效果…</div>}
       {upgrading && <div className="notice" role="status">正在检查并更新优化方案…</div>}
       {notice && <div className={cn("notice", notice.error && "error")} role={notice.error ? "alert" : "status"}>{notice.text}</div>}
     </main></div>

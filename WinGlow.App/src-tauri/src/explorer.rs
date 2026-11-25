@@ -109,13 +109,13 @@ fn shell_pid() -> Option<u32> {
     }
     (pid != 0).then_some(pid)
 }
-fn explorer_path() -> Result<PathBuf> {
+pub(crate) fn windows_directory() -> Result<PathBuf> {
     let mut buffer = vec![0u16; 32768];
     let count = unsafe { GetWindowsDirectoryW(Some(&mut buffer)) } as usize;
     if count == 0 || count >= buffer.len() {
         bail!("无法读取 Windows 目录");
     }
-    Ok(PathBuf::from(String::from_utf16_lossy(&buffer[..count])).join("explorer.exe"))
+    Ok(PathBuf::from(String::from_utf16_lossy(&buffer[..count])))
 }
 fn same_session(pid: u32) -> Result<()> {
     let (mut target, mut current) = (0, 0);
@@ -206,7 +206,7 @@ fn prepare(executable: &std::path::Path, shell: HANDLE) -> Result<Prepared> {
 fn restart_shell() -> Result<()> {
     let old_pid = shell_pid().context("未找到当前桌面的资源管理器")?;
     same_session(old_pid)?;
-    let executable = explorer_path()?;
+    let executable = windows_directory()?.join("explorer.exe");
     let shell = Handle(unsafe {
         OpenProcess(
             PROCESS_TERMINATE
@@ -353,18 +353,21 @@ fn recover_effects() -> Result<()> {
     )
 }
 pub fn restart() -> Result<()> {
-    restart_with_wallpaper(false)
+    restart_with_wallpaper(false, false)
+}
+pub(crate) fn restart_manually() -> Result<()> {
+    restart_with_wallpaper(false, true)
 }
 #[allow(dead_code)] // Exercised by the native_checks example, not the production UI.
 pub(crate) fn restart_for_optimization() -> Result<()> {
-    restart_with_wallpaper(true)
+    restart_with_wallpaper(true, false)
 }
-fn restart_with_wallpaper(defer_wallpaper: bool) -> Result<()> {
+fn restart_with_wallpaper(defer_wallpaper: bool, manual: bool) -> Result<()> {
     let now = unsafe { GetTickCount64() };
     let last = std::fs::read_to_string(refresh_stamp()?)
         .ok()
         .and_then(|s| s.trim().parse().ok());
-    if !refresh_due(last, now) {
+    if !manual && !refresh_due(last, now) {
         crate::font_engine::notify();
         crate::shell_engine::notify();
         return Err(RefreshDeferred.into());

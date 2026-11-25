@@ -5,39 +5,48 @@ if (-not (Test-Path (Join-Path $appDir "package.json"))) {
   Read-Host "按回车关闭"
   exit 1
 }
-$pnpmCommand = Get-Command pnpm.cmd -ErrorAction SilentlyContinue
-if (-not $pnpmCommand) {
-  $fallbackPnpm = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\bin\fallback\pnpm.cmd"
-  if (Test-Path $fallbackPnpm) { $pnpmPath = $fallbackPnpm }
-} else {
-  $pnpmPath = $pnpmCommand.Source
+$nodeDir = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin"
+$cargoDir = Join-Path $env:USERPROFILE ".cargo\bin"
+if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue) -and (Test-Path $nodeDir)) {
+  $env:PATH = $nodeDir + ";" + $env:PATH
 }
-if (-not $pnpmPath) {
-  Write-Host "没有找到 pnpm。请先安装 Node.js 和 pnpm，再重新打开此入口。" -ForegroundColor Red
+if (Test-Path $cargoDir) { $env:PATH = $cargoDir + ";" + $env:PATH }
+if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
+  Write-Host "没有找到 npm。请先安装 Node.js，再重新打开此入口。" -ForegroundColor Red
   Read-Host "按回车关闭"
   exit 1
 }
-$nodeDir = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin"
-$cargoDir = Join-Path $env:USERPROFILE ".cargo\bin"
-if (Test-Path $nodeDir) { $env:PATH = $nodeDir + ";" + $env:PATH }
-if (Test-Path $cargoDir) { $env:PATH = $cargoDir + ";" + $env:PATH }
-$shimDir = Join-Path $env:TEMP "WinGlow-dev-tools"
-New-Item -ItemType Directory -Path $shimDir -Force | Out-Null
-$npmShimPath = Join-Path $shimDir "npm.cmd"
+Set-Location $appDir
+if ((@("node_modules/typescript/bin/tsc", "node_modules/.bin/vite.cmd", "node_modules/.bin/tauri.cmd") |
+    Where-Object { -not (Test-Path -LiteralPath $_) })) {
+  Write-Host "正在补齐开发依赖…" -ForegroundColor Cyan
+  & npm.cmd ci --no-audit --no-fund
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "开发依赖安装失败。" -ForegroundColor Red
+    Read-Host "按回车关闭"
+    exit 1
+  }
+}
 $devPort = 1420
 while (Get-NetTCPConnection -LocalPort $devPort -State Listen -ErrorAction SilentlyContinue) { $devPort++ }
-$devConfigPath = Join-Path $env:TEMP "WinGlow-dev-$devPort.json"
-$npmShim = "@echo off`r`ncall `"$pnpmPath`" exec vite --port $devPort --strictPort`r`nexit /b %ERRORLEVEL%"
-Set-Content -LiteralPath $npmShimPath -Value $npmShim -Encoding ASCII
-$env:PATH = $shimDir + ";" + $env:PATH
-$devConfig = @{ identifier = "com.sober.windowsfonttuner2.dev"; build = @{ beforeDevCommand = "npm run dev"; devUrl = "http://localhost:$devPort" } }
-$devConfig | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $devConfigPath -Encoding UTF8
-Set-Location $appDir
+$devConfigPath = Join-Path $env:TEMP "WinGlow-dev-$PID.json"
+$devConfig = @{
+  identifier = "com.sober.windowsfonttuner2.dev"
+  build = @{
+    beforeDevCommand = "node node_modules/vite/bin/vite.js --port $devPort --strictPort"
+    devUrl = "http://localhost:$devPort"
+  }
+}
+[IO.File]::WriteAllText($devConfigPath, ($devConfig | ConvertTo-Json -Depth 4))
 Write-Host "正在启动 WinGlow 开发版。首次启动会先编译，请稍候。" -ForegroundColor Cyan
 Write-Host "开发端口：$devPort" -ForegroundColor DarkGray
 Write-Host "此窗口显示运行日志；关闭此窗口会停止开发服务。" -ForegroundColor DarkGray
-& $pnpmPath tauri dev --config $devConfigPath
-$exitCode = $LASTEXITCODE
+try {
+  & .\node_modules\.bin\tauri.cmd dev --config $devConfigPath
+  $exitCode = $LASTEXITCODE
+} finally {
+  Remove-Item -LiteralPath $devConfigPath -ErrorAction SilentlyContinue
+}
 if ($exitCode -ne 0) {
   Write-Host "开发版启动失败，错误代码：$exitCode" -ForegroundColor Red
   Read-Host "按回车关闭"

@@ -543,16 +543,23 @@ fn finish_session(
 }
 
 pub fn menu_only() -> Result<ActionResult> {
-    let entries = menu_policy::plan()?;
-    let count = entries.len();
-    if count == 0 {
+    let mut entries = menu_policy::plan()?;
+    let breeze_enabled = breeze::enabled()?;
+    if breeze_enabled {
+        entries.extend(crate::breeze_profile::plan()?);
+    }
+    if entries.is_empty() {
         return Ok(ActionResult {
-            message: "菜单已简洁，没有可确认的多余项。".into(),
+            message: "右键菜单已符合简洁预设。".into(),
         });
     }
     shell_engine::commit("menu:auto", entries, || Ok(()))?;
     Ok(ActionResult {
-        message: "菜单已精简。需要时可手动打开附加选项。".into(),
+        message: if breeze_enabled {
+            "菜单已精简并保存 Breeze 的宽松主题与快速动画。若右键菜单仍显示旧效果，请点击“刷新菜单”。"
+        } else {
+            "菜单已精简。若仍显示旧效果，请点击“刷新菜单”。"
+        }.into(),
     })
 }
 

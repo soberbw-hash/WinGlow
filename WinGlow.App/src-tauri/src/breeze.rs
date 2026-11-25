@@ -327,6 +327,9 @@ pub fn set(enable: bool) -> Result<ActionResult> {
             });
         }
         entries.extend(crate::archive_filter::plan()?);
+        if crate::breeze_profile::read()?.is_none() {
+            entries.extend(crate::breeze_profile::plan()?);
+        }
         let result = shell_engine::commit("menu:breeze", entries, || {
             if running()? {
                 return ensure_owned_runtime();
@@ -367,7 +370,7 @@ pub fn set(enable: bool) -> Result<ActionResult> {
         }
         shell_engine::commit("menu:breeze", entries, stop)?;
         Ok(ActionResult {
-            message: "已关闭 Breeze 自启和注入进程。注销后恢复原菜单。".into(),
+            message: "已关闭 Breeze。点击“刷新菜单”即可查看原生菜单。".into(),
         })
     }
 }

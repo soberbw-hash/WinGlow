@@ -1037,12 +1037,22 @@ fn wallpaper_change(change: impl FnOnce(&Path) -> Result<()>) -> Result<ActionRe
     runtime::preflight(&exe)?;
     let before = capture_wallpaper_optimization()?;
     let marker = wallpaper_undo_marker()?;
-    let tmp = marker.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
-    transaction::persist_new(&tmp, &serde_json::to_vec(&before)?)?;
-    worker::replace_file(&tmp, &marker)?;
+    let previous_undo = match fs::read(&marker) {
+        Ok(bytes) if bytes.len() <= 8192 => Some(bytes),
+        Ok(_) => bail!("壁纸恢复记录无效。"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    write_wallpaper_undo(&marker, &serde_json::to_vec(&before)?)?;
     let outcome = ensure_lively_started(&exe).and_then(|_| change(&exe));
     if let Err(error) = outcome {
-        return match restore_wallpaper_optimization(&before) {
+        return match restore_wallpaper_optimization(&before).and_then(|()| {
+            if let Some(bytes) = previous_undo {
+                write_wallpaper_undo(&marker, &bytes)
+            } else {
+                fs::remove_file(&marker).map_err(Into::into)
+            }
+        }) {
             Ok(()) => Err(error),
             Err(restore) => Err(anyhow::anyhow!("{error:#}；原壁纸恢复未完成：{restore:#}")),
         };
@@ -1056,16 +1066,28 @@ fn wallpaper_change(change: impl FnOnce(&Path) -> Result<()>) -> Result<ActionRe
         message: "壁纸设置已应用。".into(),
     })
 }
+fn write_wallpaper_undo(path: &Path, bytes: &[u8]) -> Result<()> {
+    let temp = path.with_extension(format!("{}.tmp", uuid::Uuid::new_v4()));
+    transaction::persist_new(&temp, bytes)?;
+    worker::replace_file(&temp, path)
+}
 pub fn select_wallpaper(id: String, minutes: u32) -> Result<ActionResult> {
     if id == "builtin:carousel" {
         bail!("自动轮播已移除，请直接选择一张壁纸。");
     }
-    let dark = wallpaper_theme_mode(&id);
     let project = if let Some(scene) = id.strip_prefix("builtin:") {
         scene_project(scene, minutes)?
     } else {
         library_project(&id)?
     };
+    let dark = wallpaper_theme_mode(&id).or_else(|| {
+        let metadata = fs::read(project.join("LivelyInfo.json")).ok()?;
+        let metadata: serde_json::Value = serde_json::from_slice(&metadata).ok()?;
+        metadata["Title"]
+            .as_str()?
+            .eq_ignore_ascii_case("Rain")
+            .then_some(true)
+    });
     wallpaper_change(|exe| {
         carousel::stop()?;
         send_wallpaper_command(
@@ -1080,7 +1102,7 @@ pub fn select_wallpaper(id: String, minutes: u32) -> Result<ActionResult> {
         match dark {
             Some(true) => crate::wallpaper_theme::use_dark_wallpaper_mode(),
             Some(false) => crate::wallpaper_theme::use_light_wallpaper_mode(),
-            None => Ok(()),
+            None => crate::wallpaper_theme::restore_baseline(),
         }
     })
 }

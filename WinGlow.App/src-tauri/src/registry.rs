@@ -19,6 +19,7 @@ pub enum Scope {
     Avalon(String),
     Explorer,
     IconOverrides,
+    MachineIconOverrides,
     DesktopView,
     MenuVerb {
         machine: bool,
@@ -42,6 +43,7 @@ pub enum Scope {
     ArchiveFilter,
     ArchiveFilterRules,
     BreezeConfig,
+    BreezePlugin,
     VisualConfig,
 }
 
@@ -60,7 +62,7 @@ impl Scope {
             Self::Desktop => r"Control Panel\Desktop".into(),
             Self::Avalon(display) => format!(r"Software\Microsoft\Avalon.Graphics\{display}"),
             Self::Explorer => r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced".into(),
-            Self::IconOverrides => {
+            Self::IconOverrides | Self::MachineIconOverrides => {
                 r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons".into()
             }
             Self::DesktopView => r"Software\Microsoft\Windows\Shell\Bags\1\Desktop".into(),
@@ -77,7 +79,10 @@ impl Scope {
             Self::WindowMetrics => r"Control Panel\Desktop\WindowMetrics".into(),
             Self::ClassicConfig => r"Software\ExplorerPatcher".into(),
             Self::TaskbarConfig => String::new(),
-            Self::ArchiveFilter | Self::ArchiveFilterRules | Self::BreezeConfig => String::new(),
+            Self::ArchiveFilter
+            | Self::ArchiveFilterRules
+            | Self::BreezeConfig
+            | Self::BreezePlugin => String::new(),
             Self::VisualConfig => String::new(),
             Self::LiveUiFonts => String::new(), // Virtual slot, handled through native APIs below.
         }
@@ -87,6 +92,7 @@ impl Scope {
             if matches!(
                 self,
                 Self::SystemFonts
+                    | Self::MachineIconOverrides
                     | Self::CommandStoreVerb { .. }
                     | Self::MachineBlockedExtensions
                     | Self::Substitutes
@@ -222,7 +228,9 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
                 | "TaskbarAl"
                 | "Start_ShowClassicMode"
         ),
-        Scope::IconOverrides => matches!(slot.name.as_str(), "29" | "77"),
+        Scope::IconOverrides | Scope::MachineIconOverrides => {
+            matches!(slot.name.as_str(), "29" | "77")
+        }
         Scope::DesktopView => slot.name == "FFlags",
         Scope::WindowMetrics => crate::ui_fonts::NAMES.contains(&slot.name.as_str()),
         Scope::LiveUiFonts => slot.name == "Fonts",
@@ -234,6 +242,7 @@ pub fn validate_slot(slot: &Slot) -> Result<()> {
         Scope::ArchiveFilter => slot.name == "WinGlow-ArchiveFilter.js",
         Scope::ArchiveFilterRules => slot.name == "WinGlow-MenuRules.json",
         Scope::BreezeConfig => slot.name == "config.json",
+        Scope::BreezePlugin => crate::breeze_plugins::valid_name(&slot.name),
         Scope::VisualConfig => crate::visual::CONFIG_NAMES.contains(&slot.name.as_str()),
         Scope::MenuVerb { path, .. } => {
             crate::menu::valid_verb_path(path) && slot.name == "LegacyDisable"
@@ -310,6 +319,9 @@ impl ValueStore for WindowsRegistry {
         if slot.scope == Scope::BreezeConfig {
             return crate::breeze_profile::read();
         }
+        if slot.scope == Scope::BreezePlugin {
+            return crate::breeze_plugins::read(&slot.name);
+        }
         if slot.scope == Scope::TaskbarConfig {
             return crate::taskbar::read_config();
         }
@@ -347,6 +359,9 @@ impl ValueStore for WindowsRegistry {
         }
         if entry.slot.scope == Scope::BreezeConfig {
             return crate::breeze_profile::write(entry.value.as_ref());
+        }
+        if entry.slot.scope == Scope::BreezePlugin {
+            return crate::breeze_plugins::write(&entry.slot.name, entry.value.as_ref());
         }
         if entry.slot.scope == Scope::TaskbarConfig {
             return crate::taskbar::write_config(entry.value.as_ref());

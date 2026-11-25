@@ -15,7 +15,7 @@ fn rules_path() -> Result<PathBuf> {
 pub fn read_rules() -> Result<Option<StoredValue>> {
     read_at(rules_path()?)
 }
-fn read_at(path: PathBuf) -> Result<Option<StoredValue>> {
+pub(crate) fn read_at(path: PathBuf) -> Result<Option<StoredValue>> {
     match fs::read(path) {
         Ok(bytes) => Ok(Some(StoredValue { kind: 3, bytes })),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -28,7 +28,7 @@ pub fn write(value: Option<&StoredValue>) -> Result<()> {
 pub fn write_rules(value: Option<&StoredValue>) -> Result<()> {
     write_at(rules_path()?, value)
 }
-fn write_at(path: PathBuf, value: Option<&StoredValue>) -> Result<()> {
+pub(crate) fn write_at(path: PathBuf, value: Option<&StoredValue>) -> Result<()> {
     if let Some(value) = value {
         if value.kind != 3 || value.bytes.len() > 65536 {
             bail!("菜单过滤快照无效。");

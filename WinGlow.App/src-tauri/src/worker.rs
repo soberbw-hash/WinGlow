@@ -219,12 +219,14 @@ fn run_with_refresh(operation: Operation, allow_refresh: bool) -> Result<ActionR
 pub(crate) fn run_inner(operation: Operation) -> Result<ActionResult> {
     let needs_admin = match &operation {
         Operation::OptionalTool { .. } => false,
-        Operation::Toggle { .. }
-        | Operation::Appearance { .. }
-        | Operation::TaskbarSettings { .. } => false,
+        Operation::Toggle { id, .. } => crate::shell_engine::is_overlay_tweak(id),
+        Operation::Appearance { .. } | Operation::TaskbarSettings { .. } => false,
         Operation::Menu { id, .. } => crate::menu::needs_admin(id)?,
         Operation::RestoreCategory { category } => {
-            matches!(category.as_str(), "menu" | "all-last" | "pending")
+            matches!(
+                category.as_str(),
+                "menu" | "details" | "all-last" | "pending"
+            )
         }
         _ => true,
     };

@@ -87,6 +87,9 @@ fn write_values(state: &ThemeState) -> Result<()> {
 
 fn write(state: &ThemeState) -> Result<()> {
     let before = capture()?;
+    if &before == state {
+        return Ok(());
+    }
     if let Err(error) = write_values(state) {
         return match write_values(&before) {
             Ok(()) => Err(error),

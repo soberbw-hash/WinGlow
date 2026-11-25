@@ -1,6 +1,7 @@
 mod app_update;
 mod archive_filter;
 mod breeze;
+mod breeze_plugins;
 mod breeze_profile;
 mod component_runtime;
 mod desktop;
@@ -237,6 +238,25 @@ async fn open_breeze_config() -> Result<ActionResult, String> {
     })
 }
 
+#[tauri::command]
+async fn refresh_explorer() -> Result<ActionResult, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let _optimization_guard = worker::optimization_lock()?;
+        let _transaction_guard = worker::lock()?;
+        shell_engine::ensure_ready()?;
+        if optimization::state()?.1 {
+            anyhow::bail!("有未完成的优化恢复，请先完成恢复后再刷新右键菜单。");
+        }
+        explorer::restart_manually()?;
+        Ok(ActionResult {
+            message: "资源管理器已刷新。可以查看桌面图标或重新打开右键菜单。".into(),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e: anyhow::Error| format!("{e:#}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if worker::handle_cli() {
@@ -320,6 +340,7 @@ pub fn run() {
             restore_normal,
             open_backup,
             open_breeze_config,
+            refresh_explorer,
             open_homepage,
             update_status,
             check_updates,

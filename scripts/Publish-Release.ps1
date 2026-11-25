@@ -85,7 +85,7 @@ $body = @{
     target_commitish = $TargetCommitish
     name = $ReleaseName
     body = $ReleaseNotes
-    draft = $false
+    draft = $true
     prerelease = $false
 }
 
@@ -96,10 +96,11 @@ catch {
     $response = $_.Exception.Response
     if ($response -and $response.StatusCode.Value__ -eq 422) {
         $release = Invoke-RestMethod -Method Get -Uri ("https://api.github.com/repos/soberbw-hash/WinGlow/releases/tags/" + $tag) -Headers $headers
+        if (-not $release.draft) { throw "Release $tag is already public." }
         $release = Invoke-GitHubJson -Method Patch -Uri ("https://api.github.com/repos/soberbw-hash/WinGlow/releases/" + $release.id) -Headers $headers -Body @{
             name = $ReleaseName
             body = $ReleaseNotes
-            draft = $false
+            draft = $true
             prerelease = $false
         }
     }
@@ -114,14 +115,25 @@ foreach ($assetPath in ($AssetPaths | Where-Object { $_ })) {
     Remove-ExistingAsset -Release $release -AssetName $assetName -Headers $headers
 
     $uploadUrl = "https://uploads.github.com/repos/soberbw-hash/WinGlow/releases/$($release.id)/assets?name=$([uri]::EscapeDataString($assetName))"
-    & curl.exe --http1.1 -L -X POST `
-        -H "Authorization: Bearer $token" `
+    $auth = 'header = "Authorization: Bearer ' + $token + '"'
+    $uploaded = $auth | & curl.exe --config - --silent --show-error --fail --http1.1 -X POST `
         -H "Accept: application/vnd.github+json" `
         -H "Content-Type: application/octet-stream" `
         --data-binary "@$resolvedPath" `
-        $uploadUrl | Out-Null
+        $uploadUrl
+    if ($LASTEXITCODE -ne 0) { throw "Upload failed for $assetName. Release remains a draft." }
+    $asset = ($uploaded -join "`n") | ConvertFrom-Json
+    $digest = 'sha256:' + (Get-FileHash -LiteralPath $resolvedPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($asset.name -ne $assetName -or $asset.state -ne 'uploaded' -or
+        $asset.size -ne (Get-Item -LiteralPath $resolvedPath).Length -or $asset.digest -ne $digest) {
+        throw "GitHub did not confirm the upload and SHA-256 for $assetName. Release remains a draft."
+    }
 }
 
+$release = Invoke-GitHubJson -Method Patch -Uri ("https://api.github.com/repos/soberbw-hash/WinGlow/releases/" + $release.id) -Headers $headers -Body @{
+    draft = $false
+    make_latest = 'true'
+}
 [PSCustomObject]@{
     Tag = $tag
     ReleaseUrl = $release.html_url

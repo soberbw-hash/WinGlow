@@ -21,6 +21,8 @@ const ROOTS: &[(&str, &str)] = &[
     ("Drive", "磁盘"),
     ("DesktopBackground", "桌面"),
     ("exefile", "EXE 程序"),
+    ("batfile", "批处理"),
+    ("cmdfile", "批处理"),
     ("lnkfile", "快捷方式"),
     ("Launcher.ImmersiveApplication", "应用快捷方式"),
     ("Unknown", "未知格式"),

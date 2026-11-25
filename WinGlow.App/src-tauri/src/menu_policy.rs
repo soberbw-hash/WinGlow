@@ -270,7 +270,24 @@ fn confirmed_third_party(name: &str, source: &str) -> bool {
     .any(|x| product.contains(x));
     known && !path.is_empty() && (path.contains(".exe") || path.contains(".dll"))
 }
+fn default_hidden_registration(scope: &Scope) -> bool {
+    match scope {
+        Scope::MenuVerb { path, .. } => [
+            r"Directory\shell\AnyCode",
+            r"Directory\Background\shell\AnyCode",
+        ]
+        .iter()
+        .any(|registration| path.eq_ignore_ascii_case(registration)),
+        Scope::MenuHandler { guid, .. } => {
+            guid.eq_ignore_ascii_case("{1D27F844-3A1F-4410-85AC-14651078412D}")
+        }
+        _ => false,
+    }
+}
 pub fn should_hide(name: &str, slot: &Slot, key: &RegKey, server: Option<&RegKey>) -> bool {
+    if default_hidden_registration(&slot.scope) {
+        return true;
+    }
     let source = match slot.scope {
         Scope::BlockedExtensions | Scope::MenuHandler { .. } => {
             server.and_then(|k| k.get_value::<String, _>("").ok())
@@ -339,6 +356,27 @@ pub fn plan() -> Result<Vec<Entry>> {
 mod tests {
     use super::*;
     use crate::registry;
+    #[test]
+    fn default_preset_targets_exact_visual_studio_and_compatibility_registrations() {
+        for path in [
+            r"Directory\shell\AnyCode",
+            r"Directory\Background\shell\AnyCode",
+        ] {
+            assert!(default_hidden_registration(&Scope::MenuVerb {
+                machine: true,
+                path: path.into(),
+            }));
+        }
+        assert!(!default_hidden_registration(&Scope::MenuVerb {
+            machine: true,
+            path: r"Directory\shell\VSCode".into(),
+        }));
+        assert!(default_hidden_registration(&Scope::MenuHandler {
+            machine: true,
+            path: r"exefile\shellex\ContextMenuHandlers\Compatibility".into(),
+            guid: "{1D27F844-3A1F-4410-85AC-14651078412D}".into(),
+        }));
+    }
     #[test]
     fn cleanup_only_subtracts_and_is_idempotent_after_manual_hiding() {
         fn item(id: &str, enabled: bool, hide: bool) -> crate::models::MenuItem {

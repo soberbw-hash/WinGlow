@@ -66,9 +66,12 @@ pub fn commit(
     activate: impl FnOnce() -> Result<()>,
 ) -> Result<ActionResult> {
     ensure_ready()?;
-    let icon_overrides_changed = entries
-        .iter()
-        .any(|entry| entry.slot.scope == Scope::IconOverrides);
+    let icon_overrides_changed = entries.iter().any(|entry| {
+        matches!(
+            entry.slot.scope,
+            Scope::IconOverrides | Scope::MachineIconOverrides
+        )
+    });
     let desktop_before = if entries.iter().any(|e| e.slot.scope == Scope::DesktopView) {
         Some(crate::desktop::labels_hidden()?)
     } else {
@@ -85,7 +88,7 @@ pub fn commit(
     notify();
     Ok(ActionResult {
         message: if icon_overrides_changed {
-            "已保存并通知资源管理器刷新图标缓存；若图标仍未变化，请注销后再查看。盾牌角标受 Windows 版本限制。".into()
+            "已保存角标设置。若桌面仍显示旧图标，请点击“刷新桌面”。".into()
         } else {
             "已保存。部分设置需要注销后生效。".into()
         },
@@ -93,8 +96,8 @@ pub fn commit(
 }
 fn tweak_slot(id: &str) -> Result<Slot> {
     Ok(match id {
-        "shortcut-arrow" => registry::slot(Scope::IconOverrides, "29"),
-        "shield-overlay" => registry::slot(Scope::IconOverrides, "77"),
+        "shortcut-arrow" => registry::slot(Scope::MachineIconOverrides, "29"),
+        "shield-overlay" => registry::slot(Scope::MachineIconOverrides, "77"),
         "desktop-labels" => registry::slot(Scope::DesktopView, "FFlags"),
         "desktop-icons" => registry::slot(Scope::Explorer, "HideIcons"),
         "file-extensions" => registry::slot(Scope::Explorer, "HideFileExt"),
@@ -103,34 +106,34 @@ fn tweak_slot(id: &str) -> Result<Slot> {
 }
 pub fn load() -> Result<ShellState> {
     let mut tweaks = Vec::new();
-    for (id, label, note) in [
+    let icon_available = icon_file()?.is_file();
+    let icon = blank_icon_path()?;
+    let legacy_icon = legacy_icon_path()?;
+    for (id, label, description) in [
         (
             "shortcut-arrow",
             "隐藏快捷方式箭头",
-            Some("若桌面图标暂未更新，请注销后再查看。"),
+            "只调整系统叠加的快捷方式箭头。",
         ),
         (
             "shield-overlay",
             "隐藏盾牌角标",
-            Some("实验功能；Windows 版本或图标缓存可能影响显示，必要时注销后重试。"),
+            "只调整系统叠加的盾牌。部分 Windows 版本可能仍显示。",
         ),
     ] {
-        let value = WindowsRegistry.read(&tweak_slot(id)?)?;
-        let enabled = match id {
-            "shortcut-arrow" | "shield-overlay" => value
-                .and_then(|v| registry::as_string(&v))
-                .is_some_and(|s| s == blank_icon_path().unwrap_or_default()),
-            "desktop-labels" => {
-                crate::desktop::labels_hidden().unwrap_or(number(value, 0) & 0x20000 != 0)
-            }
-            "file-extensions" => number(value, 1) == 0,
-            _ => number(value, 0) != 0,
+        let slot = tweak_slot(id)?;
+        let enabled = icon_available && points_to(&slot, &icon)?;
+        let legacy = registry::slot(Scope::IconOverrides, &slot.name);
+        let note = if !enabled && points_to(&legacy, &legacy_icon)? {
+            "旧版设置需要重新开启以修复。两项改完后可一起刷新桌面。"
+        } else {
+            description
         };
         tweaks.push(ToggleState {
             id: id.into(),
             label: label.into(),
             enabled,
-            note: note.map(str::to_string),
+            note: Some(note.into()),
         });
     }
     let (optimization_active, optimization_pending) = crate::optimization::state()?;
@@ -153,7 +156,7 @@ pub fn load() -> Result<ShellState> {
             .any(|d| transaction::is_pending(d)),
     })
 }
-fn blank_icon_path() -> Result<String> {
+fn legacy_icon_path() -> Result<String> {
     Ok(format!(
         "{},0",
         font_engine::data_root()?
@@ -161,21 +164,41 @@ fn blank_icon_path() -> Result<String> {
             .to_string_lossy()
     ))
 }
+fn icon_file() -> Result<std::path::PathBuf> {
+    Ok(crate::explorer::windows_directory()?.join("WinGlow-TransparentOverlay.ico"))
+}
+fn blank_icon_path() -> Result<String> {
+    Ok(format!("{},0", icon_file()?.display()))
+}
+fn points_to(slot: &Slot, expected: &str) -> Result<bool> {
+    Ok(WindowsRegistry
+        .read(slot)?
+        .and_then(|value| registry::as_string(&value))
+        .is_some_and(|path| path.eq_ignore_ascii_case(expected)))
+}
 fn prepare_icon() -> Result<()> {
-    // Original transparent 1x1 BGRA icon, with a complete AND mask; no system resource edits.
-    let path = font_engine::data_root()?.join("transparent.ico");
-    let mut ico = vec![
-        0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 32, 0, 48, 0, 0, 0, 22, 0, 0, 0,
-    ];
-    ico.extend(40u32.to_le_bytes());
-    ico.extend(1i32.to_le_bytes());
-    ico.extend(2i32.to_le_bytes());
-    ico.extend(1u16.to_le_bytes());
-    ico.extend(32u16.to_le_bytes());
-    ico.extend([0u8; 24]);
-    ico.extend([0u8; 4]);
-    ico.extend([255, 0, 0, 0]);
-    fs::create_dir_all(font_engine::data_root()?)?;
+    // The machine-wide registry value needs an icon that every user can read.
+    // Use separate transparent BGRA frames and AND masks for common DPI sizes.
+    let path = icon_file()?;
+    let sizes = [16u32, 24, 32, 48, 64, 96];
+    let mut ico = vec![0, 0, 1, 0, sizes.len() as u8, 0];
+    let mut frames = Vec::new();
+    for size in sizes {
+        let mask_bytes = size.div_ceil(32) * 4 * size;
+        let image_bytes = 4 * size * size;
+        let offset = 6 + sizes.len() as u32 * 16 + frames.len() as u32;
+        ico.extend([size as u8, size as u8, 0, 0, 1, 0, 32, 0]);
+        ico.extend((40 + image_bytes + mask_bytes).to_le_bytes());
+        ico.extend(offset.to_le_bytes());
+        frames.extend(40u32.to_le_bytes());
+        frames.extend(size.to_le_bytes());
+        frames.extend((size * 2).to_le_bytes());
+        frames.extend([1, 0, 32, 0]);
+        frames.extend([0; 24]);
+        frames.resize(frames.len() + image_bytes as usize, 0);
+        frames.resize(frames.len() + mask_bytes as usize, 255);
+    }
+    ico.extend(frames);
     if !path.exists() {
         transaction::persist_new(&path, &ico)?;
     }
@@ -186,14 +209,41 @@ fn prepare_icon() -> Result<()> {
 }
 pub fn overlay_plan() -> Result<Vec<Entry>> {
     prepare_icon()?;
+    let mut entries = Vec::new();
+    for name in ["29", "77"] {
+        entries.extend(overlay_entries(
+            registry::slot(Scope::MachineIconOverrides, name),
+            true,
+        )?);
+    }
+    Ok(entries)
+}
+pub(crate) fn is_overlay_tweak(id: &str) -> bool {
+    matches!(id, "shortcut-arrow" | "shield-overlay")
+}
+fn overlay_entries(slot: Slot, enabled: bool) -> Result<Vec<Entry>> {
     let path = blank_icon_path()?;
-    Ok(["29", "77"]
-        .into_iter()
-        .map(|name| Entry {
-            slot: registry::slot(Scope::IconOverrides, name),
+    let legacy = registry::slot(Scope::IconOverrides, &slot.name);
+    let mut entries = Vec::new();
+    if points_to(&legacy, &legacy_icon_path()?)? {
+        entries.push(Entry {
+            slot: legacy,
+            value: None,
+        });
+    }
+    if enabled {
+        entries.push(Entry {
+            slot,
             value: Some(registry::string(&path)),
-        })
-        .collect())
+        });
+    } else if points_to(&slot, &path)? {
+        let mut original = baseline(std::slice::from_ref(&slot))?.remove(0);
+        original.value = original.value.filter(|value| {
+            registry::as_string(value).is_none_or(|current| !current.eq_ignore_ascii_case(&path))
+        });
+        entries.push(original);
+    }
+    Ok(entries)
 }
 pub fn toggle(id: &str, enabled: bool) -> Result<ActionResult> {
     if matches!(id, "desktop-icons" | "file-extensions" | "desktop-labels") {
@@ -212,20 +262,22 @@ pub fn toggle(id: &str, enabled: bool) -> Result<ActionResult> {
         return crate::window_material::set(enabled);
     }
     let slot = tweak_slot(id)?;
+    if is_overlay_tweak(id) {
+        ensure_ready()?;
+        if enabled {
+            prepare_icon()?;
+        }
+        let entries = overlay_entries(slot, enabled)?;
+        if entries.is_empty() {
+            return Ok(ActionResult {
+                message: "角标设置未改变。".into(),
+            });
+        }
+        return commit(&format!("tweak:{id}"), entries, || Ok(()));
+    }
     let original = baseline(std::slice::from_ref(&slot))?.remove(0);
     let old = WindowsRegistry.read(&slot)?;
     let value = match id {
-        "shortcut-arrow" | "shield-overlay" => {
-            if enabled {
-                prepare_icon()?;
-                Some(registry::string(&blank_icon_path()?))
-            } else {
-                original.value.filter(|v| {
-                    registry::as_string(v)
-                        .is_none_or(|s| s != blank_icon_path().unwrap_or_default())
-                })
-            }
-        }
         "desktop-labels" => {
             let flags = number(old, crate::desktop::flags()?);
             Some(dword(if enabled {
@@ -308,11 +360,13 @@ pub(crate) fn belongs_to_category(slot: &Slot, category: &str) -> bool {
                 | Scope::ArchiveFilter
                 | Scope::ArchiveFilterRules
                 | Scope::BreezeConfig
+                | Scope::BreezePlugin
         ),
         (scope, "details") => matches!(
             scope,
             Scope::Explorer
                 | Scope::IconOverrides
+                | Scope::MachineIconOverrides
                 | Scope::DesktopView
                 | Scope::TaskbarConfig
                 | Scope::ClassicConfig
